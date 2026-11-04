@@ -1,6 +1,6 @@
 extends Node3D
 const Mining = preload("res://scripts/mining_state.gd")
-const COMPLEX_FOOTPRINT := Rect2(Mining.SITE - Vector2(9, 7), Vector2(18, 14))
+var layout: Dictionary = {}
 var mining_beacons: Node3D
 var mining_complex: Node3D
 
@@ -25,28 +25,51 @@ static func landing_safe(x: float, z: float) -> bool:
 static func normal_at(x: float, z: float) -> Vector3:
 	return Vector3((height_at(x-1,z)-height_at(x+1,z))*.5,1,(height_at(x,z-1)-height_at(x,z+1))*.5).normalized()
 
+func terrain_height(x: float, z: float) -> float:
+	if layout.is_empty():
+		return height_at(x, z)
+	var point := Vector2(x, z)
+	var shifted: Vector2 = point + layout.offset
+	var flatten := smoothstep(48.0, 105.0, point.distance_to(layout.landing))
+	var center_clearance := smoothstep(55.0, 170.0, point.length())
+	return height_at(shifted.x, shifted.y) * float(layout.amplitude) * flatten * center_clearance
+
+func terrain_normal(x: float, z: float) -> Vector3:
+	return Vector3((terrain_height(x-1,z)-terrain_height(x+1,z))*.5, 1, (terrain_height(x,z-1)-terrain_height(x,z+1))*.5).normalized()
+
+func safe_terrain(x: float, z: float) -> bool:
+	if layout.is_empty():
+		return landing_safe(x, z)
+	var center := terrain_height(x, z)
+	for offset in [Vector2.ZERO, Vector2(4,0), Vector2(-4,0), Vector2(0,4), Vector2(0,-4)]:
+		var point: Vector2 = Vector2(x, z) + offset
+		if terrain_normal(point.x, point.y).y < .95 or absf(terrain_height(point.x, point.y) - center) > 1.5:
+			return false
+	return true
+
 func landing_clear(x: float, z: float) -> bool:
-	if mining_beacons != null and COMPLEX_FOOTPRINT.grow(5).has_point(Vector2(x, z)):
+	var site: Vector2 = layout.get("site", Mining.SITE)
+	if mining_beacons != null and Rect2(site - Vector2(9, 7), Vector2(18, 14)).grow(5).has_point(Vector2(x, z)):
 		return false
-	if not landing_safe(x,z):return false
+	if not safe_terrain(x,z):return false
 	for footprint in rock_bounds:
 		if footprint.grow(4.0).has_point(Vector2(x,z)):return false
 	return true
 
 func ground_point(point: Vector2) -> Vector3:
-	return Vector3(point.x, height_at(point.x, point.y), point.y)
+	return Vector3(point.x, terrain_height(point.x, point.y), point.y)
 
 func show_mining_site(surveyed: bool, installed: bool) -> void:
 	if surveyed and mining_beacons == null:
 		mining_beacons = Node3D.new()
 		add_child(mining_beacons)
 		for offset in [Vector2(-8, -8), Vector2(-8, 8), Vector2(8, -8), Vector2(8, 8)]:
-			var point := ground_point(Mining.LANDING_POINT + offset)
+			var point := ground_point(layout.get("landing", Mining.LANDING_POINT) + offset)
 			_mining_box(mining_beacons, Vector3(.7, .5, .7), point + Vector3.UP * .25, Color("73dbd1"))
 	if installed and mining_complex == null:
 		mining_complex = Node3D.new()
 		add_child(mining_complex)
-		var point := ground_point(Mining.SITE)
+		var point := ground_point(layout.get("site", Mining.SITE))
 		_mining_box(mining_complex, Vector3(14, 1.4, 10), point, Color("354956"))
 		_mining_box(mining_complex, Vector3(7, 3, 7), point + Vector3(1, 1.8, 0), Color("738897"))
 		_mining_box(mining_complex, Vector3(1.2, 8, 1.2), point + Vector3(0, 4, 0), Color("db9b49"))
@@ -59,7 +82,8 @@ func _mining_box(parent: Node3D, dimensions: Vector3, point: Vector3, color: Col
 
 func _ready() -> void:
 	_terrain()
-	_outpost()
+	if layout.is_empty():
+		_outpost()
 	environment = Environment.new()
 	environment.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
@@ -73,7 +97,7 @@ func _ready() -> void:
 	environment.ambient_light_energy = .7
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.fog_enabled = true
-	environment.fog_light_color = Color("b6bdc1")
+	environment.fog_light_color = layout.get("sky_color", Color("b6bdc1"))
 	environment.fog_density = .00065
 	environment.fog_sky_affect = .15
 
@@ -81,6 +105,7 @@ func _terrain() -> void:
 	var mesh := SurfaceTool.new()
 	mesh.begin(Mesh.PRIMITIVE_TRIANGLES)
 	const STEP := 30.0
+	var ground_color: Color = layout.get("ground_color", Color("a68b6d"))
 	for z in range(-32,32):
 		for x in range(-32,32):
 			var a := Vector2(x*STEP,z*STEP)
@@ -88,11 +113,9 @@ func _terrain() -> void:
 			var c := a+Vector2(0,STEP)
 			var d := a+Vector2(STEP,STEP)
 			for p in [a,b,c,b,d,c]:
-				var height := height_at(p.x,p.y)
-				var color := Color("a68b6d").lerp(Color("51585a"),clampf(slope_at(p.x,p.y)*1.6,0,1))
-				var dx: float=(height_at(p.x+1,p.y)-height_at(p.x-1,p.y))*.5
-				var dz: float=(height_at(p.x,p.y+1)-height_at(p.x,p.y-1))*.5
-				mesh.set_normal(Vector3(-dx,1,-dz).normalized())
+				var height := terrain_height(p.x,p.y)
+				var color := ground_color.lerp(Color("51585a"),clampf(1.0 - terrain_normal(p.x,p.y).y,0,1)) if not layout.is_empty() else ground_color.lerp(Color("51585a"),clampf(slope_at(p.x,p.y)*1.6,0,1))
+				mesh.set_normal(terrain_normal(p.x,p.y))
 				mesh.set_color(color)
 				mesh.add_vertex(Vector3(p.x,height,p.y))
 	var ground := MeshInstance3D.new()
@@ -101,7 +124,7 @@ func _terrain() -> void:
 	material.shader = preload("res://shaders/terrain.gdshader")
 	ground.material_override = material
 	add_child(ground)
-	var rng := RandomNumberGenerator.new();rng.seed=90210
+	var rng := RandomNumberGenerator.new();rng.seed=int(layout.get("rock_seed", 90210))
 	var rock_material := StandardMaterial3D.new();rock_material.albedo_color=Color("645d56");rock_material.roughness=1
 	var rocks := MultiMesh.new()
 	rocks.transform_format=MultiMesh.TRANSFORM_3D
@@ -110,10 +133,12 @@ func _terrain() -> void:
 	for i in range(160):
 		var x:=rng.randf_range(-850,850);var z:=rng.randf_range(-850,850)
 		if Vector2(x,z).length()<75:x+=100
+		if not layout.is_empty() and Vector2(x,z).distance_to(layout.landing)<55.0:
+			x += 115.0
 		var scale:=Vector3(rng.randf_range(1,5),rng.randf_range(1,4),rng.randf_range(1,6))
 		var radius:=maxf(scale.x,scale.z)
 		rock_bounds.append(Rect2(Vector2(x-radius,z-radius),Vector2.ONE*radius*2))
-		rocks.set_instance_transform(i,Transform3D(Basis.from_euler(Vector3(0,rng.randf()*TAU,0)).scaled(scale),Vector3(x,height_at(x,z)+scale.y*.2,z)))
+		rocks.set_instance_transform(i,Transform3D(Basis.from_euler(Vector3(0,rng.randf()*TAU,0)).scaled(scale),Vector3(x,terrain_height(x,z)+scale.y*.2,z)))
 	var instances:=MultiMeshInstance3D.new();instances.multimesh=rocks;instances.material_override=rock_material;add_child(instances)
 
 func box(size: Vector3, point: Vector3, color: Color) -> MeshInstance3D:

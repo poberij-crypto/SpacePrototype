@@ -113,7 +113,7 @@ func restore(game: Node3D, s: Dictionary) -> bool:
 			game.enemies.erase(target)
 			target.queue_free()
 	if s.kind=="planet":game.planet.restore(s.planet)
-	game.mission.beacon.visible = game.mission.stage in ["ВЫЛЕТ","СКАНИРОВАНИЕ"]
+	game.mission.beacon.visible = game.mission.stage in ["ВЫЛЕТ","СКАНИРОВАНИЕ",Planet.OUTBOUND,Planet.INBOUND]
 	game.clear_held_input()
 	game.mission.step()
 	return true

@@ -4,7 +4,10 @@ const SAVE_PATH := "user://space_prototype.json"
 const Sector = preload("res://scripts/sector_data.gd")
 const Trade = preload("res://scripts/trade_data.gd")
 var cargo: Dictionary = Trade.empty_cargo()
-var mining = preload("res://scripts/mining_state.gd").new()
+const Mining = preload("res://scripts/mining_state.gd")
+const World = preload("res://scripts/world_generator.gd")
+var mining = Mining.new()
+var neighbor_mining = Mining.new()
 var mining_suspended := false
 var mining_active_at := 0
 var trade_note := ""
@@ -50,6 +53,8 @@ var stable_button: Button
 var destroyed := false
 
 func _ready() -> void:
+	neighbor_mining.initial_reserve = int(World.neighbor().reserve)
+	neighbor_mining.reserve = neighbor_mining.initial_reserve
 	_load_progress()
 	_build_world()
 	mission = preload("res://scripts/training_mission.gd").new()
@@ -60,7 +65,7 @@ func _ready() -> void:
 	planet.setup(self)
 	_build_hud()
 	mining_active_at = Time.get_ticks_msec()
-	if mining.installed:
+	if mining.installed or neighbor_mining.installed:
 		_reconcile_mining()
 	_update_hud()
 
@@ -168,15 +173,20 @@ func _input(event: InputEvent) -> void:
 		joystick.queue_redraw()
 
 func _process(_delta: float) -> void:
-	if mining_suspended or not mining.installed:
+	if mining_suspended:
 		return
 	var now := Time.get_ticks_msec()
 	var seconds := (now - mining_active_at) / 1000.0
 	mining_active_at = now
-	var prior_stock: int = mining.stock
-	var was_repairing: bool = mining.repair_left > 0
-	mining.advance(seconds, false)
-	if mining.stock != prior_stock or (was_repairing and mining.repair_left == 0):
+	var changed := false
+	for mine in [mining, neighbor_mining]:
+		if not mine.installed:
+			continue
+		var stock: int = mine.stock
+		var was_repairing: bool = mine.repair_left > 0
+		mine.advance(seconds, false)
+		changed = changed or mine.stock != stock or (was_repairing and mine.repair_left == 0)
+	if changed:
 		_save_progress()
 
 func _physics_process(delta: float) -> void:
@@ -306,9 +316,12 @@ func _save_progress() -> bool:
 	if destroyed:cargo = Trade.empty_cargo()
 	var flight: Dictionary = snapshots.capture(self) if mission!=null and ship!=null else {}
 	if flight.is_empty() and not pending_snapshot.is_empty() and not destroyed:flight = pending_snapshot.duplicate(true)
-	if mining.installed and not mining_suspended:
-		mining.saved_at = int(Time.get_unix_time_from_system())
-	var data := {"schema":4,"mining":mining.capture(),"cargo":cargo,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
+	if not mining_suspended:
+		var now := int(Time.get_unix_time_from_system())
+		for mine in [mining, neighbor_mining]:
+			if mine.installed:
+				mine.saved_at = now
+	var data := {"schema":5,"mining":mining.capture(),"neighbor_mining":neighbor_mining.capture(),"cargo":cargo,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
 	var ok: bool = store.write_document(data)
 	save_error = "" if ok else "Не удалось сохранить игру"
 	return ok
@@ -319,6 +332,7 @@ func _load_progress() -> void:
 	credits = maxi(0,int(data.get("credits",0)))
 	cargo = Trade.read_cargo(data.get("cargo",{}))
 	mining.restore(data.get("mining"))
+	neighbor_mining.restore(data.get("neighbor_mining"))
 	training_runs = maxi(0,int(data.get("training_runs",0)))
 	station_id = clampi(int(data.get("station_id",0)),0,1)
 	for key in upgrades:upgrades[key] = clampi(int(data.upgrades.get(key,0)),0,3)
@@ -349,7 +363,7 @@ func choose_mission(kind: String) -> void:
 	selected_mission = kind
 	_save_progress()
 
-func start_selected_mission() -> void:
+func start_selected_mission(to_neighbor := false) -> void:
 	if not at_station() or not pending_snapshot.is_empty():return
 	if selected_mission=="delivery" and cargo_used()+Trade.CONTRACT_SIZE>Trade.CAPACITY:
 		trade_note = "Для контейнера нужны 2 свободные единицы отсека."
@@ -365,6 +379,7 @@ func start_selected_mission() -> void:
 		mission.beacon.queue_free()
 		mission.setup(self)
 	mission.kind = selected_mission
+	planet.configure_route(to_neighbor and selected_mission == "planet")
 	mission.launch()
 
 func resume_flight() -> bool:
@@ -411,20 +426,22 @@ func _notification(what: int) -> void:
 			mining_suspended = true
 
 func _reconcile_mining() -> void:
-	if not mining.installed:
+	if not mining.installed and not neighbor_mining.installed:
 		return
 	var now := int(Time.get_unix_time_from_system())
-	if mining.saved_at > 0:
-		mining.advance(float(maxi(0, now - mining.saved_at)), true)
+	for mine in [mining, neighbor_mining]:
+		if mine.installed and mine.saved_at > 0:
+			mine.advance(float(maxi(0, now - mine.saved_at)), true)
 	_save_progress()
-	if mining.has_report():
+	if mining.has_report() or neighbor_mining.has_report():
 		flight_ui.planet_panel.show_report.call_deferred()
 
-func acknowledge_mining_report() -> void:
-	var previous: Dictionary = mining.capture()
-	mining.clear_report()
+func acknowledge_mining_report(for_neighbor := false) -> void:
+	var mine = neighbor_mining if for_neighbor else mining
+	var previous: Dictionary = mine.capture()
+	mine.clear_report()
 	if not _save_progress():
-		mining.restore(previous)
+		mine.restore(previous)
 
 func _toggle_map() -> void:
 	clear_held_input()
@@ -483,3 +500,10 @@ func start_planet_flight() -> void:
 	if not can_trade():return
 	choose_mission("planet")
 	start_selected_mission()
+
+
+func start_neighbor_flight() -> void:
+	if not can_trade():
+		return
+	choose_mission("planet")
+	start_selected_mission(true)

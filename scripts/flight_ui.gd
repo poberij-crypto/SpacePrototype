@@ -203,7 +203,7 @@ func _draw() -> void:
 		return
 	panel(Rect2(24, 24, 260, 48))
 	draw_circle(Vector2(44, 48), 4, CYAN)
-	txt(Vector2(58, 55), "СКИФ / АСТРА" if game.planet.on_surface() else "СКИФ / УЧЕБНЫЙ ПОЛЁТ", 17)
+	txt(Vector2(58, 55), "СКИФ / %s" % (game.planet.generated.planet_name if game.planet.in_neighbor() else "АСТРА") if game.planet.on_surface() else ("СКИФ / %s" % game.planet.generated.system_name if game.planet.in_neighbor() else "СКИФ / УЧЕБНЫЙ ПОЛЁТ"), 17)
 	panel(Rect2(24, 86, 260, 126))
 	txt(Vector2(42, 113), "КОРПУС", 14, DIM)
 	txt(Vector2(220, 113), "%d%%" % maxi(0, int(game.hull)), 16)
@@ -215,7 +215,8 @@ func _draw() -> void:
 	txt(Vector2(42, 197), "СИСТЕМЫ · " + ("ОТКАЗ" if game.destroyed else "НОРМА"), 12, RED if game.destroyed else DIM)
 	panel(Rect2(440, 24, 400, 70))
 	txt(Vector2(460, 49), game.mission.objective(), 13, DIM)
-	txt(Vector2(460, 77), "ЭТАП: " + game.mission.stage, 18)
+	var stage_title: String = "ОБРАТНЫЙ ПРЫЖОК" if game.mission.stage == game.planet.INBOUND else game.mission.stage
+	txt(Vector2(460, 77), "ЭТАП: " + stage_title, 16)
 	txt(Vector2(700, 77), "%05d кр." % game.credits, 17, AMBER)
 	# Aim indicator follows the actual forward line of the ship.
 	var camera: Camera3D = game.cockpit_camera if game.cockpit else game.external_camera
@@ -290,9 +291,16 @@ func _radar() -> void:
 	draw_line(c - Vector2(60,0), c + Vector2(60,0), Color("244355"))
 	draw_line(c - Vector2(0,60), c + Vector2(0,60), Color("244355"))
 	draw_colored_polygon(PackedVector2Array([c+Vector2(0,-6), c+Vector2(-4,5), c+Vector2(4,5)]), CYAN)
+	var radar_title := "РАДАР · 160 м"
 	if game.planet.on_surface():
-		var base: Vector3 = game.ship.global_basis.inverse()*(-game.ship.global_position)
-		draw_circle(c+Vector2(base.x,base.z).limit_length(560)*.1,4,AMBER)
+		var target_point := Vector3.ZERO
+		radar_title = "ПЛОЩАДКА · 560 м"
+		if game.planet.in_neighbor():
+			target_point = game.planet.mining_target()
+			if not game.planet.mine().surveyed:
+				radar_title = "СИГНАЛ · 560 м"
+		var relative: Vector3 = game.ship.global_basis.inverse() * (target_point - game.ship.global_position)
+		draw_circle(c + Vector2(relative.x, relative.z).limit_length(560) * .1, 4, AMBER)
 	for target in game.enemies:
 		if not is_instance_valid(target) or not target.visible:
 			continue
@@ -300,7 +308,7 @@ func _radar() -> void:
 		var point := Vector2(relative.x, relative.z) * 0.35
 		point = point.limit_length(56)
 		draw_circle(c + point, 3, RED if target.get_meta("hostile") else AMBER)
-	txt(Vector2(80,803) if portrait else Vector2(310,550), "ПЛОЩАДКА · 560 м" if game.planet.on_surface() else "РАДАР · 160 м", 12, DIM)
+	txt(Vector2(80,803) if portrait else Vector2(310,550), radar_title, 12, DIM)
 
 func _draw_portrait() -> void:
 	panel(Rect2(24,24,300,48))
@@ -468,7 +476,7 @@ func _update_mission_panel() -> void:
 func _draw_navigation(camera: Camera3D) -> void:
 	var m = game.mission
 	var surface: bool = m.stage == "ПОВЕРХНОСТЬ" and game.planet.on_surface()
-	if not surface and m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ","К ПЛАНЕТЕ"]:return
+	if not surface and m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ","К ПЛАНЕТЕ",game.planet.OUTBOUND,game.planet.INBOUND]:return
 	if m.can_dock():return
 	var destination: Vector3 = game.planet.mining_target() if surface else m.nav_position()
 	var delta: Vector3 = destination-camera.global_position
@@ -490,9 +498,10 @@ func _draw_navigation(camera: Camera3D) -> void:
 	else:
 		draw_polyline(PackedVector2Array([p+Vector2(0,-16),p+Vector2(16,0),p+Vector2(0,16),p+Vector2(-16,0),p+Vector2(0,-16)]),CYAN,2,true)
 	var label := Sector.title(m.destination if m.stage in ["ДОСТАВКА","ПЕРЕЛЁТ"] else m.origin) if m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] else "МАЯК"
-	if m.stage=="К ПЛАНЕТЕ":label="ВХОД НА АСТРУ"
+	if m.stage=="К ПЛАНЕТЕ":label="ВХОД В АТМОСФЕРУ"
+	if m.stage in [game.planet.OUTBOUND,game.planet.INBOUND]:label="ПРЫЖКОВЫЙ МАЯК"
 	if surface:
-		label = "ПЛОЩАДКА М-1" if game.mining.surveyed else "СИГНАЛ РУДЫ"
+		label = "ПЛОЩАДКА" if game.planet.mine().surveyed else "СИГНАЛ РУДЫ"
 	if camera.is_position_behind(destination):label += " ПОЗАДИ"
 	var label_y := p.y + 35
 	if surface and (label_y >= zone.end.y or portrait):

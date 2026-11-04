@@ -13,6 +13,7 @@ const SERVICE_RADIUS := 40.0
 
 var surveyed := false
 var installed := false
+var initial_reserve := RESERVE
 var reserve := RESERVE
 var stock := 0
 var work := 0.0
@@ -118,16 +119,16 @@ func restore(value) -> void:
 	installed = surveyed and typeof(saved_installation) == TYPE_BOOL and saved_installation
 	if not installed:
 		value = {}
-	reserve = int(_read(value, "reserve", RESERVE - int(installed), RESERVE - 1))
-	stock = int(_read(value, "stock", 0, mini(CAPACITY, RESERVE - reserve)))
+	reserve = int(_read(value, "reserve", initial_reserve - int(installed), initial_reserve - 1))
+	stock = int(_read(value, "stock", 0, mini(CAPACITY, initial_reserve - reserve)))
 	work = _read(value, "work", 0, WORK_PER_ORE - .000001)
 	saved_at = int(_read(value, "saved_at", 0, 253402300799.0))
 	event_seed = int(_read(value, "event_seed", 0, 2147483647.0))
 	event_index = int(_read(value, "event_index", 0, 2147483647.0))
 	offline_until_event = _read(value, "offline_until_event", _event_delay(), 1500.0) if installed else 0.0
 	repair_left = _read(value, "repair_left", 0, REPAIR_SECONDS)
-	report_produced = int(_read(value, "report_produced", 0, RESERVE))
-	report_lost = int(_read(value, "report_lost", 0, RESERVE))
+	report_produced = int(_read(value, "report_produced", 0, initial_reserve))
+	report_lost = int(_read(value, "report_lost", 0, initial_reserve))
 	report_breakdowns = int(_read(value, "report_breakdowns", 0, 2147483647.0))
 	report_raids = int(_read(value, "report_raids", 0, 2147483647.0))
 

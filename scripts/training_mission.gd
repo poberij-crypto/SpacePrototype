@@ -50,10 +50,11 @@ func launch() -> void:
 	if stage != "ИНСТРУКТАЖ":return
 	if kind=="delivery" and game.cargo_used()+game.Trade.CONTRACT_SIZE>game.Trade.CAPACITY:return
 	stage = "ПЕРЕЛЁТ" if kind=="trade" else ("ДОСТАВКА" if kind=="delivery" else "ВЫЛЕТ")
-	if kind=="planet":stage="К ПЛАНЕТЕ"
+	if kind=="planet":stage=game.planet.OUTBOUND if game.planet.neighbor_route else "К ПЛАНЕТЕ"
 	cargo_loaded = kind=="delivery"
 	beacon.visible = kind not in ["delivery","trade","planet"]
 	if kind in ["delivery","trade","planet"]:game.ship.look_at(nav_position())
+	if kind=="planet":game.planet.sync_space()
 	game.clear_held_input()
 	game._save_progress()
 
@@ -112,12 +113,12 @@ func dock() -> void:
 
 func nav_position() -> Vector3:
 	if kind=="planet" and stage!="ВОЗВРАЩЕНИЕ":
-		return Vector3.ZERO if game.planet.on_surface() else game.planet.ENTRY
+		return game.planet.nav_point()
 	if stage in ["ДОСТАВКА","ПЕРЕЛЁТ"]:return Sector.dock_point(destination)
 	return Sector.dock_point(origin) if stage=="ВОЗВРАЩЕНИЕ" else BEACON
 
 func objective() -> String:
-	if kind=="planet" and stage not in ["ИНСТРУКТАЖ","ЗАВЕРШЕНО","ПРОВАЛ","ВОЗВРАЩЕНИЕ"]:return "АСТРА / РАЙОН МЕРИДИАН"
+	if kind=="planet" and stage not in ["ИНСТРУКТАЖ","ЗАВЕРШЕНО","ПРОВАЛ","ВОЗВРАЩЕНИЕ"]:return game.planet.region_title()
 	match stage:
 		"ИНСТРУКТАЖ":return "МЕНЮ СТАНЦИИ"
 		"ВЫЛЕТ":return "ЛЕТИТЕ К МАЯКУ"

@@ -1,6 +1,7 @@
 extends Node3D
 var sun_light: DirectionalLight3D
 var space_root: Node3D
+var neighbor_root: Node3D
 var world_environment: WorldEnvironment
 var space_environment: Environment
 var body: Node3D
@@ -218,6 +219,28 @@ func _build_space() -> void:
 		rock.rotation = Vector3(rng.randf()*TAU,rng.randf()*TAU,rng.randf()*TAU)
 	_build_station(Vector3(35,0,-105))
 	_build_station(Vector3(-300,30,-490),true)
+
+func build_neighbor(layout: Dictionary) -> void:
+	neighbor_root = Node3D.new()
+	game.add_child(neighbor_root)
+	neighbor_root.visible = false
+	var sphere := SphereMesh.new()
+	sphere.radius = layout.radius
+	sphere.height = sphere.radius * 2.0
+	sphere.radial_segments = 64
+	sphere.rings = 32
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://shaders/planet.gdshader")
+	material.set_shader_parameter("palette", layout.ground_color)
+	var entry: Vector3 = layout.entry
+	var center := entry + Vector3(20, -25, -sphere.radius - 45)
+	mesh(neighbor_root, sphere, center, material)
+	var atmosphere := sphere.duplicate() as SphereMesh
+	atmosphere.radius += 1.2
+	atmosphere.height = atmosphere.radius * 2.0
+	var glow := ShaderMaterial.new()
+	glow.shader = preload("res://shaders/atmosphere.gdshader")
+	mesh(neighbor_root, atmosphere, center, glow)
 
 func _build_station(location: Vector3, outpost := false) -> void:
 	var station := Node3D.new()
