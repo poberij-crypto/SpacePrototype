@@ -7,9 +7,12 @@ func check(ok: bool, message: String) -> void:
 func fresh():
  var g = load("res://main.tscn").instantiate();g.store.path = PATH;root.add_child(g);g.set_physics_process(false);return g
 func transition(g, stage: String) -> void:
+ var checked_surface := false
  for i in range(300):
   if g.mission.stage!=stage:return
   g._physics_process(.05)
+  if stage=="СПУСК" and g.planet.on_surface() and not checked_surface:
+   roundtrip(g);checked_surface=true
   await process_frame
  check(false,"transition timeout: "+stage)
 func fly_to(g, goal: Vector3, stop_distance := 12.0) -> void:
@@ -61,6 +64,8 @@ func run() -> void:
  resumed.velocity = Vector3.ZERO
  resumed.ship.position=Vector3(39,12,4)
  check(not resumed.planet.can_land(),"landing rejects occupied outpost footprint")
+ resumed.ship.position=Vector3(-473.2202,resumed.planet.region.height_at(-473.2202,790.3551)+10,790.3551)
+ check(not resumed.planet.can_land(),"landing rejects generated rock footprint")
  resumed.ship.position=Vector3(0,12,0)
  check(resumed.planet.can_land(),"flat low slow area permits landing")
  resumed.planet.action();resumed._physics_process(.8);roundtrip(resumed);await transition(resumed,"ПОСАДКА")
@@ -99,6 +104,11 @@ func run() -> void:
  var hull_before: float = ascent.hull
  ascent._physics_process(.2)
  check(ascent.ship.position.y>=ascent.planet.region.height_at(0,0)+1.5 and ascent.hull<hull_before,"ground clamp and impact damage")
+ ascent.ship.position=Vector3(330,ascent.planet.region.height_at(330,-540)+1.8,-540)
+ ascent.velocity=Vector3(60,0,0);ascent.throttle=0;ascent.stabilized=false;ascent.hull=100
+ ascent._physics_process(1.0/60)
+ check(ascent.hull<100 and ascent.velocity.x<60,"horizontal hill impact damages hull and resolves inward velocity")
+ ascent.stabilized=true
  ascent.ship.position=Vector3(2000,200,2000);ascent._physics_process(.1)
  check(absf(ascent.ship.position.x)<=900 and absf(ascent.ship.position.z)<=900,"district edge constrained")
  ascent.planet.vertical=1
@@ -116,6 +126,11 @@ func run() -> void:
  check(ascent.snapshots.valid(snapshot),"surface snapshot JSON valid")
  snapshot.planet.surface=false
  check(not ascent.snapshots.valid(snapshot),"inconsistent scene checkpoint rejected")
+ ascent.planet.exit_orbit();await transition(ascent,"ВЫХОД НА ОРБИТУ")
+ fly_to(ascent,ascent.mission.nav_position())
+ check(ascent.mission.can_dock(),"second station return reachable")
+ ascent.mission.dock()
+ check(ascent.station_id==1,"expedition returns to second origin")
  for game in [g,resumed,landed,ascent]:game.queue_free()
  await process_frame;cleanup()
  print("Planet tests: %d failures" % failures);quit(1 if failures else 0)

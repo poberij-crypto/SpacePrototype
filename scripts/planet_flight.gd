@@ -28,7 +28,7 @@ func busy() -> bool:return game.mission.stage in TRANSITIONS
 func altitude() -> float:return game.ship.position.y-Region.height_at(game.ship.position.x,game.ship.position.z)
 func can_enter() -> bool:return active() and game.mission.stage=="К ПЛАНЕТЕ" and not game.destroyed and game.ship.position.distance_to(ENTRY)<=35 and game.velocity.length()<=25
 func can_land() -> bool:
-	return active() and game.mission.stage=="ПОВЕРХНОСТЬ" and not game.destroyed and altitude()<=25 and game.velocity.length()<=8 and Region.landing_safe(game.ship.position.x,game.ship.position.z)
+	return active() and game.mission.stage=="ПОВЕРХНОСТЬ" and not game.destroyed and altitude()<=25 and game.velocity.length()<=8 and region!=null and region.landing_clear(game.ship.position.x,game.ship.position.z)
 func can_exit() -> bool:return active() and game.mission.stage=="ПОВЕРХНОСТЬ" and not game.destroyed and altitude()>=100
 
 func _request_region() -> void:
@@ -120,8 +120,10 @@ func constrain_motion(delta: float) -> void:
 	var p: Vector3=game.ship.position
 	var floor_height:=Region.height_at(p.x,p.z)+1.8
 	if p.y<floor_height:
-		var impact: float=absf(game.velocity.y)
-		p.y=floor_height;game.velocity.y=0
+		var normal:=Region.normal_at(p.x,p.z)
+		var impact: float=maxf(0,-game.velocity.dot(normal))
+		p.y=floor_height
+		if game.velocity.dot(normal)<0:game.velocity=game.velocity.slide(normal)
 		if impact>8:
 			game.hull=maxf(0,game.hull-(impact-8)*2)
 			game.destroyed=game.hull<=0

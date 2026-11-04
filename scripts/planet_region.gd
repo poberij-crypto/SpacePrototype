@@ -1,5 +1,6 @@
 extends Node3D
 var environment: Environment
+var rock_bounds: Array[Rect2] = []
 
 static func height_at(x: float, z: float) -> float:
 	var distance := Vector2(x,z).length()
@@ -14,6 +15,15 @@ static func landing_safe(x: float, z: float) -> bool:
 	var center:=height_at(x,z)
 	for delta in [Vector2.ZERO,Vector2(4,0),Vector2(-4,0),Vector2(0,4),Vector2(0,-4)]:
 		if slope_at(x+delta.x,z+delta.y)>.35 or absf(height_at(x+delta.x,z+delta.y)-center)>1.5:return false
+	return true
+
+static func normal_at(x: float, z: float) -> Vector3:
+	return Vector3((height_at(x-1,z)-height_at(x+1,z))*.5,1,(height_at(x,z-1)-height_at(x,z+1))*.5).normalized()
+
+func landing_clear(x: float, z: float) -> bool:
+	if not landing_safe(x,z):return false
+	for footprint in rock_bounds:
+		if footprint.grow(4.0).has_point(Vector2(x,z)):return false
 	return true
 
 func _ready() -> void:
@@ -70,6 +80,8 @@ func _terrain() -> void:
 		var x:=rng.randf_range(-850,850);var z:=rng.randf_range(-850,850)
 		if Vector2(x,z).length()<75:x+=100
 		var scale:=Vector3(rng.randf_range(1,5),rng.randf_range(1,4),rng.randf_range(1,6))
+		var radius:=maxf(scale.x,scale.z)
+		rock_bounds.append(Rect2(Vector2(x-radius,z-radius),Vector2.ONE*radius*2))
 		rocks.set_instance_transform(i,Transform3D(Basis.from_euler(Vector3(0,rng.randf()*TAU,0)).scaled(scale),Vector3(x,height_at(x,z)+scale.y*.2,z)))
 	var instances:=MultiMeshInstance3D.new();instances.multimesh=rocks;instances.material_override=rock_material;add_child(instances)
 
