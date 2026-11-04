@@ -4,6 +4,9 @@ const SAVE_PATH := "user://space_prototype.json"
 const Sector = preload("res://scripts/sector_data.gd")
 const Trade = preload("res://scripts/trade_data.gd")
 var cargo: Dictionary = Trade.empty_cargo()
+var mining = preload("res://scripts/mining_state.gd").new()
+var mining_suspended := false
+var mining_active_at := 0
 var trade_note := ""
 var station_id := 0
 var store = preload("res://scripts/checkpoint_store.gd").new()
@@ -56,6 +59,9 @@ func _ready() -> void:
 	add_child(planet)
 	planet.setup(self)
 	_build_hud()
+	mining_active_at = Time.get_ticks_msec()
+	if mining.installed:
+		_reconcile_mining()
 	_update_hud()
 
 func _material(color: Color, emission := false) -> StandardMaterial3D:
@@ -161,9 +167,24 @@ func _input(event: InputEvent) -> void:
 		turn_input = ((flight_ui.to_design(event.position) - steer_start) / 65.0).limit_length(1.0)
 		joystick.queue_redraw()
 
+func _process(_delta: float) -> void:
+	if mining_suspended or not mining.installed:
+		return
+	var now := Time.get_ticks_msec()
+	var seconds := (now - mining_active_at) / 1000.0
+	mining_active_at = now
+	var prior_stock: int = mining.stock
+	var was_repairing: bool = mining.repair_left > 0
+	mining.advance(seconds, false)
+	if mining.stock != prior_stock or (was_repairing and mining.repair_left == 0):
+		_save_progress()
+
 func _physics_process(delta: float) -> void:
-	if upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
+	if mining_suspended:
+		return
+	if upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible or flight_ui.planet_panel.report_dialog.visible:return
 	mission.step(delta)
+	planet.step_survey(delta)
 	if planet.step(delta):
 		autosave_time += delta
 		if autosave_time>=3:
@@ -285,7 +306,9 @@ func _save_progress() -> bool:
 	if destroyed:cargo = Trade.empty_cargo()
 	var flight: Dictionary = snapshots.capture(self) if mission!=null and ship!=null else {}
 	if flight.is_empty() and not pending_snapshot.is_empty() and not destroyed:flight = pending_snapshot.duplicate(true)
-	var data := {"schema":3,"cargo":cargo,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
+	if mining.installed and not mining_suspended:
+		mining.saved_at = int(Time.get_unix_time_from_system())
+	var data := {"schema":4,"mining":mining.capture(),"cargo":cargo,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
 	var ok: bool = store.write_document(data)
 	save_error = "" if ok else "Не удалось сохранить игру"
 	return ok
@@ -295,6 +318,7 @@ func _load_progress() -> void:
 	if data.is_empty():return
 	credits = maxi(0,int(data.get("credits",0)))
 	cargo = Trade.read_cargo(data.get("cargo",{}))
+	mining.restore(data.get("mining"))
 	training_runs = maxi(0,int(data.get("training_runs",0)))
 	station_id = clampi(int(data.get("station_id",0)),0,1)
 	for key in upgrades:upgrades[key] = clampi(int(data.upgrades.get(key,0)),0,3)
@@ -373,9 +397,34 @@ func clear_held_input() -> void:
 	if planet!=null:planet.vertical=0
 
 func _notification(what: int) -> void:
-	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT,NOTIFICATION_APPLICATION_PAUSED,NOTIFICATION_WM_CLOSE_REQUEST]:
+	if not is_node_ready() or mission == null:
+		return
+	if what == NOTIFICATION_APPLICATION_RESUMED and mining_suspended:
+		mining_suspended = false
+		mining_active_at = Time.get_ticks_msec()
+		_reconcile_mining()
+	elif what in [NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_CLOSE_REQUEST]:
 		clear_held_input()
-		if is_node_ready() and mission!=null:_save_progress()
+		if not mining_suspended:
+			_save_progress()
+		if what == NOTIFICATION_APPLICATION_PAUSED:
+			mining_suspended = true
+
+func _reconcile_mining() -> void:
+	if not mining.installed:
+		return
+	var now := int(Time.get_unix_time_from_system())
+	if mining.saved_at > 0:
+		mining.advance(float(maxi(0, now - mining.saved_at)), true)
+	_save_progress()
+	if mining.has_report():
+		flight_ui.planet_panel.show_report.call_deferred()
+
+func acknowledge_mining_report() -> void:
+	var previous: Dictionary = mining.capture()
+	mining.clear_report()
+	if not _save_progress():
+		mining.restore(previous)
 
 func _toggle_map() -> void:
 	clear_held_input()

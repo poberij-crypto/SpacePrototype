@@ -5,6 +5,9 @@ var action_button: Button
 var orbit: Button
 var up: Button
 var down: Button
+var mine_action: Button
+var report_button: Button
+var report_dialog: AcceptDialog
 
 func setup(owner_game: Node3D) -> void:
 	game=owner_game;mouse_filter=Control.MOUSE_FILTER_IGNORE
@@ -17,11 +20,37 @@ func setup(owner_game: Node3D) -> void:
 	down.button_down.connect(func():game.planet.vertical=-1.0)
 	up.button_up.connect(func():game.planet.vertical=0.0)
 	down.button_up.connect(func():game.planet.vertical=0.0)
+	mine_action = _button("СКАНИРОВАТЬ", _mining_action)
+	report_button = _button("ОТЧЁТ ДОБЫЧИ", show_report)
+	report_dialog = AcceptDialog.new()
+	report_dialog.title = "Меридиан-1 · отчёт комплекса"
+	report_dialog.ok_button_text = "Прочитано"
+	report_dialog.confirmed.connect(game.acknowledge_mining_report)
+	add_child(report_dialog)
 
 func _button(text: String, callback: Callable) -> Button:
 	var b:=Button.new();b.text=text;game.flight_ui.decorate(b,true);b.pressed.connect(callback);add_child(b);return b
 func rect(b: Button, r: Rect2) -> void:b.position=r.position;b.size=r.size
 func modal() -> bool:return game.flight_ui.map_panel.visible or game.flight_ui.market_panel.visible or game.upgrades_panel.visible
+
+func _mining_action() -> void:
+	if game.mission.stage == "ПОВЕРХНОСТЬ":
+		game.planet.start_survey()
+	elif not game.mining.installed:
+		game.planet.deploy_mine()
+	else:
+		game.planet.load_ore()
+
+func show_report() -> void:
+	if not game.mining.has_report() or not is_inside_tree():
+		return
+	game.clear_held_input()
+	var m = game.mining
+	report_dialog.dialog_text = "Добыто в фоне: %d ед.\nПотеряно при налётах: %d ед.\nПоломок: %d · Налётов: %d\nСклад: %d/%d ед. · %s" % [
+		m.report_produced, m.report_lost, m.report_breakdowns, m.report_raids,
+		m.stock, m.CAPACITY, m.production_status()
+	]
+	report_dialog.popup_centered()
 
 func _process(_delta: float) -> void:
 	if game==null:return
@@ -32,7 +61,10 @@ func _process(_delta: float) -> void:
 	rect(action_button,Rect2(230,730,260,56) if portrait else Rect2(510,445,260,56))
 	rect(up,Rect2(500,1040,196,64) if portrait else Rect2(1080,478,174,64))
 	rect(down,Rect2(500,1116,196,64) if portrait else Rect2(1080,550,174,64))
+	rect(mine_action, Rect2(230,658,260,56) if portrait else Rect2(510,510,260,52))
+	rect(report_button, Rect2(364,238,190,44) if portrait else Rect2(24,224,190,44))
 	var blocked:=modal()
+	report_button.visible = game.mining.has_report() and not blocked
 	var stage: String=game.mission.stage
 	launch.visible=game.at_station() and game.pending_snapshot.is_empty() and not blocked
 	var active: bool=game.planet.active() and not game.destroyed
@@ -44,7 +76,30 @@ func _process(_delta: float) -> void:
 	if stage=="К ПЛАНЕТЕ":action_button.text="НАЧАТЬ СПУСК";action_button.disabled=not game.planet.can_enter()
 	elif stage=="ПОВЕРХНОСТЬ":action_button.text="ПОСАДКА";action_button.disabled=not game.planet.can_land()
 	else:action_button.text="ВЗЛЁТ";action_button.disabled=false
+	_update_mining_action(active and not blocked, stage)
 	queue_redraw()
+
+func _update_mining_action(available: bool, stage: String) -> void:
+	var m = game.mining
+	var airborne: bool = stage == "ПОВЕРХНОСТЬ" and not m.surveyed
+	var landed: bool = stage == "НА ПОВЕРХНОСТИ" and game.planet.can_service_mine()
+	mine_action.visible = available and (airborne or landed)
+	if airborne:
+		var scanning: bool = game.planet.survey_elapsed >= 0
+		mine_action.text = "СКАНИРОВАНИЕ · %d%%" % int(game.planet.survey_elapsed / m.SURVEY_SECONDS * 100.0) if scanning else "СКАНИРОВАТЬ"
+		mine_action.disabled = scanning or not game.planet.can_survey()
+	elif landed and not m.installed:
+		mine_action.text = "РАЗВЕРНУТЬ КОМПЛЕКС"
+		mine_action.disabled = false
+	elif landed:
+		var free: int = game.Trade.CAPACITY - game.cargo_used()
+		var quantity := mini(free, m.stock)
+		mine_action.text = "ЗАГРУЗИТЬ РУДУ · %d ЕД." % quantity
+		if free == 0:
+			mine_action.text = "ОТСЕК ЗАПОЛНЕН"
+		elif m.stock == 0:
+			mine_action.text = "СКЛАД ПУСТ"
+		mine_action.disabled = quantity == 0
 
 func text_at(p: Vector2, value: String, font_size:=18, color:=Color("e9f5fc")) -> void:
 	draw_string(get_theme_default_font(),p,value,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size,color)
@@ -78,3 +133,21 @@ func _draw() -> void:
 		else:hint="Посадка: до 25 м, до 8 м/с · орбита: от 100 м"
 	text_at(r.position+Vector2(18,27),label,16,Color("64e3ff"))
 	text_at(r.position+Vector2(18,53),hint,15)
+
+	if stage in ["ПОВЕРХНОСТЬ", "НА ПОВЕРХНОСТИ"]:
+		_draw_mining_status(portrait)
+
+func _draw_mining_status(portrait: bool) -> void:
+	var m = game.mining
+	var r := Rect2(24,454,672,64) if portrait else Rect2(310,190,630,61)
+	draw_style_box(game.flight_ui.style(Color(.025,.07,.11,.92),Color("285366")),r)
+	var title := "СИГНАЛ РУДЫ · %d м" % roundi(game.planet.mining_distance(m.SIGNAL_POINT))
+	var detail := "Сканирование · до 150 м, высота до 100 м, скорость до 20 м/с"
+	if m.surveyed:
+		title = "МЕРИДИАН-1 · ЗАПАС %d ЕД. · НИЗКИЙ РИСК" % m.reserve
+		detail = "Сядьте у маркера · доступ к комплексу в пределах 40 м"
+	if m.installed:
+		title = "МЕРИДИАН-1 · СКЛАД %d/%d · ЗАПАС %d ЕД." % [m.stock, m.CAPACITY, m.reserve]
+		detail = "%s · отсек %d/%d" % [m.production_status(), game.cargo_used(), game.Trade.CAPACITY]
+	text_at(r.position + Vector2(18,24), title, 16, Color("ffc46a"))
+	text_at(r.position + Vector2(18,48), detail, 15)

@@ -1,4 +1,9 @@
 extends Node3D
+const Mining = preload("res://scripts/mining_state.gd")
+const COMPLEX_FOOTPRINT := Rect2(Mining.SITE - Vector2(9, 7), Vector2(18, 14))
+var mining_beacons: Node3D
+var mining_complex: Node3D
+
 var environment: Environment
 var rock_bounds: Array[Rect2] = []
 
@@ -21,10 +26,36 @@ static func normal_at(x: float, z: float) -> Vector3:
 	return Vector3((height_at(x-1,z)-height_at(x+1,z))*.5,1,(height_at(x,z-1)-height_at(x,z+1))*.5).normalized()
 
 func landing_clear(x: float, z: float) -> bool:
+	if mining_beacons != null and COMPLEX_FOOTPRINT.grow(5).has_point(Vector2(x, z)):
+		return false
 	if not landing_safe(x,z):return false
 	for footprint in rock_bounds:
 		if footprint.grow(4.0).has_point(Vector2(x,z)):return false
 	return true
+
+func ground_point(point: Vector2) -> Vector3:
+	return Vector3(point.x, height_at(point.x, point.y), point.y)
+
+func show_mining_site(surveyed: bool, installed: bool) -> void:
+	if surveyed and mining_beacons == null:
+		mining_beacons = Node3D.new()
+		add_child(mining_beacons)
+		for offset in [Vector2(-8, -8), Vector2(-8, 8), Vector2(8, -8), Vector2(8, 8)]:
+			var point := ground_point(Mining.LANDING_POINT + offset)
+			_mining_box(mining_beacons, Vector3(.7, .5, .7), point + Vector3.UP * .25, Color("73dbd1"))
+	if installed and mining_complex == null:
+		mining_complex = Node3D.new()
+		add_child(mining_complex)
+		var point := ground_point(Mining.SITE)
+		_mining_box(mining_complex, Vector3(14, 1.4, 10), point, Color("354956"))
+		_mining_box(mining_complex, Vector3(7, 3, 7), point + Vector3(1, 1.8, 0), Color("738897"))
+		_mining_box(mining_complex, Vector3(1.2, 8, 1.2), point + Vector3(0, 4, 0), Color("db9b49"))
+		_mining_box(mining_complex, Vector3(4, 1.0, 4), point + Vector3(0, 7.7, 0), Color("6cddc5"))
+		for z in [-3.0, 3.0]:
+			_mining_box(mining_complex, Vector3(3.2, 2.6, 3.0), point + Vector3(-4.7, 1.2, z), Color("b57a45"))
+
+func _mining_box(parent: Node3D, dimensions: Vector3, point: Vector3, color: Color) -> void:
+	box(dimensions, point, color).reparent(parent)
 
 func _ready() -> void:
 	_terrain()

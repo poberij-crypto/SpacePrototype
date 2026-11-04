@@ -1,6 +1,7 @@
 extends Node
 const ENTRY := Vector3(100,20,-270)
 const REGION_PATH := "res://planet_region.tscn"
+const Mining = preload("res://scripts/mining_state.gd")
 const Region = preload("res://scripts/planet_region.gd")
 const STAGES := ["К ПЛАНЕТЕ","СПУСК","ПОВЕРХНОСТЬ","ПОСАДКА","НА ПОВЕРХНОСТИ","ВЗЛЁТ","ВЫХОД НА ОРБИТУ"]
 const TRANSITIONS := ["СПУСК","ПОСАДКА","ВЗЛЁТ","ВЫХОД НА ОРБИТУ"]
@@ -13,6 +14,7 @@ var vertical := 0.0
 var start := Vector3.ZERO
 var target := Vector3.ZERO
 var gear: Node3D
+var survey_elapsed := -1.0
 
 func setup(owner_game: Node3D) -> void:
 	game=owner_game
@@ -30,6 +32,69 @@ func can_enter() -> bool:return active() and game.mission.stage=="К ПЛАНЕ�
 func can_land() -> bool:
 	return active() and game.mission.stage=="ПОВЕРХНОСТЬ" and not game.destroyed and altitude()<=25 and game.velocity.length()<=8 and region!=null and region.landing_clear(game.ship.position.x,game.ship.position.z)
 func can_exit() -> bool:return active() and game.mission.stage=="ПОВЕРХНОСТЬ" and not game.destroyed and altitude()>=100
+
+func mining_distance(point: Vector2) -> float:
+	var position: Vector3 = game.ship.position
+	return Vector2(position.x, position.z).distance_to(point)
+
+func mining_target() -> Vector3:
+	return region.ground_point(Mining.LANDING_POINT if game.mining.surveyed else Mining.SIGNAL_POINT)
+
+func can_survey() -> bool:
+	return active() and surface and not game.destroyed and game.mission.stage == "ПОВЕРХНОСТЬ" \
+		and not game.mining.surveyed and mining_distance(Mining.SIGNAL_POINT) <= Mining.SURVEY_RADIUS \
+		and altitude() <= 100.0 and game.velocity.length() <= 20.0
+
+func start_survey() -> bool:
+	if survey_elapsed >= 0 or not can_survey():
+		return false
+	survey_elapsed = 0.0
+	return true
+
+func step_survey(delta: float) -> void:
+	if survey_elapsed < 0:
+		return
+	if not can_survey():
+		survey_elapsed = -1.0
+		return
+	survey_elapsed += delta
+	if survey_elapsed >= Mining.SURVEY_SECONDS:
+		survey_elapsed = -1.0
+		game.mining.surveyed = true
+		if not game._save_progress():
+			game.mining.surveyed = false
+		else:
+			region.show_mining_site(true, false)
+
+func can_service_mine() -> bool:
+	return active() and surface and not game.destroyed and game.mission.stage == "НА ПОВЕРХНОСТИ" \
+		and game.mining.surveyed and mining_distance(Mining.SITE) <= Mining.SERVICE_RADIUS
+
+func deploy_mine() -> bool:
+	if not can_service_mine() or game.mining.installed:
+		return false
+	var previous: Dictionary = game.mining.capture()
+	game.mining.deploy(randi_range(1, 2147483647))
+	if not game._save_progress():
+		game.mining.restore(previous)
+		return false
+	game.mining_active_at = Time.get_ticks_msec()
+	region.show_mining_site(true, true)
+	return true
+
+func load_ore() -> int:
+	if not can_service_mine() or not game.mining.installed:
+		return 0
+	var quantity := mini(game.mining.stock, game.Trade.CAPACITY - game.cargo_used())
+	if quantity <= 0:
+		return 0
+	game.mining.stock -= quantity
+	game.cargo.ore += quantity
+	if not game._save_progress():
+		game.mining.stock += quantity
+		game.cargo.ore -= quantity
+		return 0
+	return quantity
 
 func _request_region() -> void:
 	if region==null and not loading_requested:
@@ -54,7 +119,10 @@ func _set_surface(value: bool) -> void:
 	surface=value
 	game.visuals.sun_light.shadow_enabled=value
 	game.visuals.sun_light.light_energy=1.2 if value else 2.0
-	if region!=null:region.visible=value
+	if region != null:
+		region.visible = value
+		if value:
+			region.show_mining_site(game.mining.surveyed, game.mining.installed)
 	game.visuals.space_root.visible=not value
 	game.visuals.world_environment.environment=region.environment if value else game.visuals.space_environment
 	game.external_camera.far=2200 if value else 1500
@@ -62,6 +130,7 @@ func _set_surface(value: bool) -> void:
 	for enemy in game.enemies:enemy.visible=false
 
 func _begin(stage: String, finish: Vector3) -> void:
+	survey_elapsed = -1.0
 	elapsed=0;start=game.ship.position;target=finish
 	game.mission.stage=stage;game.throttle=0;game.velocity=Vector3.ZERO
 	game.clear_held_input();game._save_progress()
@@ -149,6 +218,7 @@ static func valid(data, stage: String) -> bool:
 	return true
 
 func restore(data: Dictionary) -> void:
+	survey_elapsed = -1.0
 	elapsed=float(data.elapsed);start=game.snapshots.vector(data.start);target=game.snapshots.vector(data.target)
 	if data.surface:
 		if region==null:

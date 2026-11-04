@@ -448,7 +448,7 @@ func _update_mission_panel() -> void:
 		var task := "Учебный бой: уничтожить противника.\nНаграда: 300 кр. + боевая награда."
 		if game.selected_mission=="scout":task = "Разведка: сканировать маяк 3 секунды.\nДо 35 м, скорость до 8 м/с. Награда: 150 кр."
 		if game.selected_mission=="delivery":task = "Контейнер оборудования → «%s».\nНаграда: 220 кр. Нужны 2 свободные ед." % Sector.title(1-game.station_id)
-		if game.selected_mission=="planet":task = "Экспедиция на Астру: район Меридиан.\nПосадка и взлёт. Награда не начисляется."
+		if game.selected_mission=="planet":task = "Экспедиция на Астру: район Меридиан.\nРазведка, посадка и вывоз руды."
 		if game.selected_mission=="trade":task = "Свободный перелёт → «%s».\nТовары продаются вручную через «ГРУЗ»." % Sector.title(1-game.station_id)
 		mission_body.text = "Баланс: %d кр. · Корпус: %d%%\nСтанция «%s» · Вылетов: %d\n%s" % [game.credits,int(game.hull),Sector.title(game.station_id),game.training_runs,task]
 		if mission_button.disabled:mission_body.text += "\nОсвободите 2 ед. отсека через «ГРУЗ»."
@@ -467,11 +467,14 @@ func _update_mission_panel() -> void:
 
 func _draw_navigation(camera: Camera3D) -> void:
 	var m = game.mission
-	if m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ","К ПЛАНЕТЕ"]:return
+	var surface: bool = m.stage == "ПОВЕРХНОСТЬ" and game.planet.on_surface()
+	if not surface and m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ","К ПЛАНЕТЕ"]:return
 	if m.can_dock():return
-	var destination: Vector3 = m.nav_position()
+	var destination: Vector3 = game.planet.mining_target() if surface else m.nav_position()
 	var delta: Vector3 = destination-camera.global_position
 	var zone := Rect2(60,340,600,400) if portrait else Rect2(330,205,570,265)
+	if surface:
+		zone = Rect2(60,540,600,110) if portrait else Rect2(330,265,570,145)
 	var p := to_design(camera.unproject_position(destination))
 	var offscreen := camera.is_position_behind(destination) or not zone.has_point(p)
 	if offscreen:
@@ -488,8 +491,13 @@ func _draw_navigation(camera: Camera3D) -> void:
 		draw_polyline(PackedVector2Array([p+Vector2(0,-16),p+Vector2(16,0),p+Vector2(0,16),p+Vector2(-16,0),p+Vector2(0,-16)]),CYAN,2,true)
 	var label := Sector.title(m.destination if m.stage in ["ДОСТАВКА","ПЕРЕЛЁТ"] else m.origin) if m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] else "МАЯК"
 	if m.stage=="К ПЛАНЕТЕ":label="ВХОД НА АСТРУ"
+	if surface:
+		label = "ПЛОЩАДКА М-1" if game.mining.surveyed else "СИГНАЛ РУДЫ"
 	if camera.is_position_behind(destination):label += " ПОЗАДИ"
-	var text_pos := Vector2(clampf(p.x-55,30,design_size.x-230),p.y+35)
+	var label_y := p.y + 35
+	if surface and (label_y >= zone.end.y or portrait):
+		label_y = p.y - 22
+	var text_pos := Vector2(clampf(p.x-55,30,design_size.x-230),label_y)
 	txt(text_pos,label+" %d м" % int(game.ship.position.distance_to(destination)),14,CYAN)
 
 func _build_sector_map() -> void:

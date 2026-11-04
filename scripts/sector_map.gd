@@ -104,7 +104,26 @@ func _draw_surface() -> void:
 		draw_line(chart.position+Vector2(chart.size.x*f,0),chart.position+Vector2(chart.size.x*f,chart.size.y),Color("31515b"))
 		draw_line(chart.position+Vector2(0,chart.size.y*f),chart.position+Vector2(chart.size.x,chart.size.y*f),Color("31515b"))
 	var pad:=project(Vector3.ZERO);draw_circle(pad,7,Color("ffc46a"));text_at(pad+Vector2(15,-12),"Посадочная площадка",16)
+	var marker := project(game.planet.mining_target())
+	var mine = game.mining
+	var amber := Color("ffc46a")
+	if mine.surveyed:
+		var site := project(game.planet.region.ground_point(mine.SITE))
+		draw_circle(marker, 4, CYAN)
+		draw_rect(Rect2(site - Vector2(4,4), Vector2(8,8)), amber)
+		marker = site
+	else:
+		var radii: Vector2 = chart.size / 1800.0 * mine.SURVEY_RADIUS
+		var contour := PackedVector2Array()
+		for i in range(33):
+			contour.append(marker + Vector2.from_angle(TAU * i / 32.0) * radii)
+		draw_colored_polygon(contour, Color(1.0,.67,.3,.17))
+		draw_polyline(contour, amber, 1.5, true)
+	text_at(marker + Vector2(12,32), "Меридиан-1" if mine.surveyed else "Область сигнала", 16, amber)
 	var p:=project(game.ship.position);draw_circle(p,6,CYAN);text_at(p+Vector2(12,20),"ВЫ",14,CYAN)
 	text_at(Vector2(rect.position.x+24,chart.end.y+40),"Высота %d м · Скорость %d м/с" % [int(game.planet.altitude()),int(game.velocity.length())],20)
-	text_at(Vector2(rect.position.x+24,chart.end.y+70),"Посадка на ровных участках · орбита от 100 м",15,DIM)
+	var info := "Посадка на ровных участках · орбита от 100 м"
+	if mine.surveyed:
+		info = "Запас %d ед. · склад %d/%d · голубая точка: посадка у залежи" % [mine.reserve, mine.stock, mine.CAPACITY]
+	text_at(Vector2(rect.position.x+24,chart.end.y+70),info,15,DIM)
 	text_at(Vector2(rect.position.x+24,rect.end.y-78),"ПОЛЁТ ПРИОСТАНОВЛЕН",14,CYAN)
