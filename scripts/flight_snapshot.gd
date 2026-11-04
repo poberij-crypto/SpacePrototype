@@ -1,0 +1,112 @@
+extends RefCounted
+const STAGES := ["ВЫЛЕТ","БОЙ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА"]
+const TACTICS := ["СБЛИЖЕНИЕ","АТАКА","УКЛОНЕНИЕ","РАЗВОРОТ"]
+
+func vec(v: Vector3) -> Array:return [v.x,v.y,v.z]
+func quat(node: Node3D) -> Array:
+	var q := node.basis.get_rotation_quaternion()
+	return [q.x,q.y,q.z,q.w]
+func vector(value: Array) -> Vector3:return Vector3(value[0],value[1],value[2])
+func rotation(value: Array) -> Basis:return Basis(Quaternion(value[0],value[1],value[2],value[3]).normalized())
+
+func capture(game: Node3D) -> Dictionary:
+	if game.mission.stage not in STAGES or game.destroyed:return {}
+	var targets: Array = []
+	for target in game.enemies:
+		var data := {"id":target.get_meta("id"),"pos":vec(target.position),"rot":quat(target),"hp":target.get_meta("health"),"visible":target.visible}
+		var pilot = target.get_node_or_null("PilotAI")
+		if pilot != null:
+			data["ai"] = {"state":pilot.state,"time":pilot.state_time,"cooldown":pilot.cooldown,"waypoint":vec(pilot.waypoint),"passes":pilot.passes,"enabled":pilot.enabled}
+		targets.append(data)
+	return {"version":2,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
+
+func _number(v, low: float, high: float) -> bool:
+	return typeof(v) in [TYPE_INT,TYPE_FLOAT] and is_finite(float(v)) and float(v)>=low and float(v)<=high
+func _array(v, count: int) -> bool:
+	if typeof(v) != TYPE_ARRAY or v.size()!=count:return false
+	for item in v:
+		if not _number(item,-1000000,1000000):return false
+	return true
+func _rotation(v) -> bool:
+	if not _array(v,4):return false
+	var length := Quaternion(v[0],v[1],v[2],v[3]).length()
+	return length>.5 and length<1.5
+
+func valid(s: Dictionary) -> bool:
+	if s.get("version") != 1 and s.get("version") != 2:return false
+	if s.get("stage") not in STAGES or s.get("kind") not in ["combat","scout","delivery"]:return false
+	if s.version==1 and s.kind=="delivery":return false
+	if s.version==2:
+		for key in ["origin","destination"]:
+			if not _number(s.get(key),0,1) or float(int(s[key]))!=float(s[key]):return false
+		if int(s.origin)==int(s.destination) or typeof(s.get("cargo"))!=TYPE_BOOL:return false
+		if s.kind=="delivery" and (s.stage!="ДОСТАВКА" or not s.cargo):return false
+		if s.kind!="delivery" and (s.stage=="ДОСТАВКА" or s.cargo):return false
+	for key in ["pos","velocity"]:
+		if not _array(s.get(key),3):return false
+	if not _rotation(s.get("rot")):return false
+	for key in ["stabilized","cockpit"]:
+		if typeof(s.get(key)) != TYPE_BOOL:return false
+	if not _number(s.get("hull"),.01,100) or not _number(s.get("shield"),0,175) or not _number(s.get("throttle"),0,1) or not _number(s.get("scan"),0,3) or not _number(s.get("fire_timer"),-100000,1):return false
+	if typeof(s.get("targets")) != TYPE_ARRAY or s.targets.size()>3:return false
+	var ids: Array = []
+	for target in s.targets:
+		if typeof(target)!=TYPE_DICTIONARY or not _number(target.get("id"),0,2):return false
+		var id := int(target.id)
+		if float(id)!=float(target.id) or id in ids:return false
+		ids.append(id)
+		if not _array(target.get("pos"),3) or not _rotation(target.get("rot")) or not _number(target.get("hp"),.01,90) or typeof(target.get("visible"))!=TYPE_BOOL:return false
+		if id==2:
+			var ai = target.get("ai")
+			if typeof(ai)!=TYPE_DICTIONARY or ai.get("state") not in TACTICS or not _array(ai.get("waypoint"),3):return false
+			if typeof(ai.get("enabled"))!=TYPE_BOOL or not _number(ai.get("time"),0,1000000) or not _number(ai.get("cooldown"),0,2) or not _number(ai.get("passes"),0,1000000):return false
+	return true
+
+func restore(game: Node3D, s: Dictionary) -> bool:
+	if not valid(s):return false
+	game.mission.origin = int(s.get("origin",0))
+	game.mission.destination = int(s.get("destination",1))
+	game.mission.cargo_loaded = bool(s.get("cargo",false))
+	game.station_id = game.mission.origin
+	game.selected_mission = s.kind
+	game.mission.kind = s.kind
+	game.mission.stage = s.stage
+	game.mission.scan_elapsed = s.scan
+	game.ship.position = vector(s.pos)
+	game.ship.basis = rotation(s.rot)
+	game.velocity = vector(s.velocity)
+	game.throttle = s.throttle
+	game.stabilized = s.stabilized
+	game.hull = s.hull
+	game.shield = minf(s.shield,100+game.upgrades.shield*25)
+	game.fire_timer = s.fire_timer
+	game.cockpit = s.cockpit
+	game.cockpit_camera.current = game.cockpit
+	game.external_camera.current = not game.cockpit
+	game.visuals.set_camera(game.cockpit)
+	game.visuals.update_flight(game.throttle)
+	for target in game.enemies.duplicate():
+		var found := false
+		for data in s.targets:
+			if data.id!=target.get_meta("id"):continue
+			found = true
+			target.position = vector(data.pos)
+			target.basis = rotation(data.rot)
+			target.set_meta("health",float(data.hp))
+			target.visible = data.visible
+			var pilot = target.get_node_or_null("PilotAI")
+			if pilot!=null:
+				pilot.state = data.ai.state
+				pilot.state_time = data.ai.time
+				pilot.cooldown = data.ai.cooldown
+				pilot.waypoint = vector(data.ai.waypoint)
+				pilot.passes = int(data.ai.passes)
+				pilot.enabled = data.ai.enabled
+				target.set_meta("tactic",pilot.state)
+		if not found:
+			game.enemies.erase(target)
+			target.queue_free()
+	game.mission.beacon.visible = game.mission.stage in ["ВЫЛЕТ","СКАНИРОВАНИЕ"]
+	game.clear_held_input()
+	game.mission.step()
+	return true

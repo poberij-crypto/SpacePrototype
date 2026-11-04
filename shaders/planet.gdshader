@@ -1,0 +1,22 @@
+shader_type spatial;
+render_mode diffuse_burley;
+float hash(vec3 p) { return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453); }
+float noise(vec3 p){
+ vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+ return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+varying vec3 sphere_pos;
+void vertex(){sphere_pos=normalize(VERTEX);}
+void fragment(){
+ vec3 p=sphere_pos;
+ float continent=noise(p*3.0)+noise(p*9.0)*0.25+noise(p*21.0)*0.08;
+ float land=smoothstep(0.67,0.71,continent);
+ vec3 water=mix(vec3(0.014,0.055,0.13),vec3(0.02,0.18,0.25),smoothstep(0.63,0.75,continent));
+ vec3 ground=mix(vec3(0.08,0.17,0.12),vec3(0.27,0.26,0.17),noise(p*16.0));
+ vec3 surface=mix(water,ground,land);
+ float ice=smoothstep(0.81,0.96,abs(p.y)+noise(p*12.0)*0.12);
+ surface=mix(surface,vec3(0.72,0.80,0.85),ice);
+ float cloud=smoothstep(0.67,0.79,noise(p*8.0+vec3(0.2,0.4,0.6))*0.7+noise(p*24.0)*0.3);
+ ALBEDO=mix(surface,vec3(0.55,0.64,0.73),cloud*0.75);
+ ROUGHNESS=0.65;SPECULAR=0.35;
+}
