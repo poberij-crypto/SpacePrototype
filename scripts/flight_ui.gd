@@ -414,6 +414,7 @@ func _build_mission_panel() -> void:
 	box.add_child(discard_button)
 
 func _update_mission_panel() -> void:
+	market_button.visible = not map_panel.visible
 	var m = game.mission
 	var locked: bool = m.flight_locked()
 	var pending: bool = not game.pending_snapshot.is_empty()

@@ -105,7 +105,10 @@ func run() -> void:
  ascent._toggle_upgrades()
  check(ascent.planet.vertical==0,"module overlay clears held climb")
  ascent._toggle_upgrades()
- ascent._toggle_map();ascent.planet.vertical=1
+ ascent._toggle_map()
+ for i in range(2):await process_frame
+ check(not ascent.flight_ui.market_button.visible,"map hides market button over title")
+ ascent.planet.vertical=1
  var held: Vector3=ascent.ship.position;ascent._physics_process(1)
  check(ascent.ship.position==held,"surface map pauses flight")
  ascent._toggle_map();ascent.clear_held_input()
