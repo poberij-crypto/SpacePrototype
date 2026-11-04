@@ -1,6 +1,8 @@
 extends Control
 
 const Sector = preload("res://scripts/sector_data.gd")
+var market_panel: Control
+var market_button: Button
 var map_panel: Control
 var map_button: Button
 var delivery_choice: Button
@@ -93,6 +95,7 @@ func setup(owner_game: Node3D) -> void:
 	upgrades_panel.visible = false
 	_build_mission_panel()
 	_build_sector_map()
+	_build_market()
 	_layout()
 
 func style(bg: Color, border: Color) -> StyleBoxFlat:
@@ -149,6 +152,9 @@ func _layout() -> void:
 	upgrades_panel.position = Vector2(140,380) if portrait else Vector2(420,154)
 	mission_panel.position = Vector2((design_size.x-480)*.5,maxf(105,(design_size.y-mission_panel.size.y)*.5))
 	dock_button.position = Vector2(230,730) if portrait else Vector2(510,445)
+	market_panel.size = design_size
+	market_button.position = Vector2(194,238) if portrait else Vector2(990,144)
+	market_button.size = Vector2(150,44) if portrait else Vector2(126,44)
 	map_panel.size = design_size
 	map_button.position = Vector2(24,238) if portrait else Vector2(1128,144)
 	map_button.size = Vector2(150,44) if portrait else Vector2(126,44)
@@ -403,13 +409,14 @@ func _update_mission_panel() -> void:
 	var locked: bool = m.flight_locked()
 	var pending: bool = not game.pending_snapshot.is_empty()
 	var station: bool = game.at_station()
-	mission_panel.visible = locked and not upgrades_panel.visible
+	mission_panel.visible = locked and not upgrades_panel.visible and not market_panel.visible
 	fire_button.disabled = locked
 	controls["+"].disabled = locked
 	controls["−"].disabled = locked
-	dock_button.visible = m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА"] and not upgrades_panel.visible
+	dock_button.visible = m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] and not upgrades_panel.visible and not market_panel.visible
 	dock_button.disabled = not m.can_dock()
 	mission_choices.visible = station and not pending
+	mission_button.disabled = station and game.selected_mission=="delivery" and game.cargo_used()+game.Trade.CONTRACT_SIZE>game.Trade.CAPACITY
 	mission_button.visible = not pending
 	resume_button.visible = station and pending
 	discard_button.visible = station and pending
@@ -429,16 +436,18 @@ func _update_mission_panel() -> void:
 		mission_title.text = "МИССИЯ ВЫПОЛНЕНА" if m.stage=="ЗАВЕРШЕНО" else "СТАНЦИЯ «%s»" % Sector.title(game.station_id)
 		var task := "Учебный бой: уничтожить противника.\nНаграда: 300 кр. + боевая награда."
 		if game.selected_mission=="scout":task = "Разведка: сканировать маяк 3 секунды.\nДо 35 м, скорость до 8 м/с. Награда: 150 кр."
-		if game.selected_mission=="delivery":task = "Контейнер оборудования → «%s».\nНаграда: 220 кр. Груз загрузится при вылете." % Sector.title(1-game.station_id)
+		if game.selected_mission=="delivery":task = "Контейнер оборудования → «%s».\nНаграда: 220 кр. Нужны 2 свободные ед." % Sector.title(1-game.station_id)
+		if game.selected_mission=="trade":task = "Свободный перелёт → «%s».\nТовары продаются вручную через «ГРУЗ»." % Sector.title(1-game.station_id)
 		mission_body.text = "Баланс: %d кр. · Корпус: %d%%\nСтанция «%s» · Вылетов: %d\n%s" % [game.credits,int(game.hull),Sector.title(game.station_id),game.training_runs,task]
+		if mission_button.disabled:mission_body.text += "\nОсвободите 2 ед. отсека через «ГРУЗ»."
 		mission_button.text = "НАЧАТЬ ВЫЛЕТ"
 	else:
 		mission_title.text = "ВЫЛЕТ ПРЕРВАН"
-		mission_body.text = "Корабль потерян. Награда не начислена.\nНовая попытка начнётся на станции\nс восстановленным учебным кораблём."
+		mission_body.text = "Корабль и груз потеряны. Награды нет.\nНовая попытка начнётся на станции\nс восстановленным учебным кораблём."
 		mission_button.text = "НА СТАНЦИЮ"
 	if not game.profile_note.is_empty():mission_body.text += "\n"+game.profile_note
 	mission_panel.reset_size()
-	if m.stage in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА"]:help_label.text = m.hint()
+	if m.stage in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"]:help_label.text = m.hint()
 	elif locked:help_label.text = ""
 	elif m.stage == "БОЙ" and previous_mission_stage != m.stage:help_label.text = "Противник активен · держите его в прицеле"
 	if not game.save_error.is_empty():help_label.text = game.save_error
@@ -446,7 +455,7 @@ func _update_mission_panel() -> void:
 
 func _draw_navigation(camera: Camera3D) -> void:
 	var m = game.mission
-	if m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА"]:return
+	if m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"]:return
 	if m.can_dock():return
 	var destination: Vector3 = m.nav_position()
 	var delta: Vector3 = destination-camera.global_position
@@ -465,7 +474,7 @@ func _draw_navigation(camera: Camera3D) -> void:
 		draw_colored_polygon(PackedVector2Array([p+dir*16,p-dir*12+tangent*9,p-dir*12-tangent*9]),CYAN)
 	else:
 		draw_polyline(PackedVector2Array([p+Vector2(0,-16),p+Vector2(16,0),p+Vector2(0,16),p+Vector2(-16,0),p+Vector2(0,-16)]),CYAN,2,true)
-	var label := Sector.title(m.destination if m.stage=="ДОСТАВКА" else m.origin) if m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА"] else "МАЯК"
+	var label := Sector.title(m.destination if m.stage in ["ДОСТАВКА","ПЕРЕЛЁТ"] else m.origin) if m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] else "МАЯК"
 	if camera.is_position_behind(destination):label += " ПОЗАДИ"
 	var text_pos := Vector2(clampf(p.x-55,30,design_size.x-230),p.y+35)
 	txt(text_pos,label+" %d м" % int(game.ship.position.distance_to(destination)),14,CYAN)
@@ -475,3 +484,10 @@ func _build_sector_map() -> void:
 	map_panel = preload("res://scripts/sector_map.gd").new()
 	content.add_child(map_panel)
 	map_panel.setup(game)
+
+func _build_market() -> void:
+	market_button = button("ГРУЗ / РЫНОК",Rect2(990,144,126,44),game._toggle_market)
+	market_button.add_theme_font_size_override("font_size",14)
+	market_panel = preload("res://scripts/market_panel.gd").new()
+	content.add_child(market_panel)
+	market_panel.setup(game)

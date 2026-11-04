@@ -48,10 +48,11 @@ func flight_locked() -> bool:
 
 func launch() -> void:
 	if stage != "ИНСТРУКТАЖ":return
-	stage = "ДОСТАВКА" if kind=="delivery" else "ВЫЛЕТ"
+	if kind=="delivery" and game.cargo_used()+game.Trade.CONTRACT_SIZE>game.Trade.CAPACITY:return
+	stage = "ПЕРЕЛЁТ" if kind=="trade" else ("ДОСТАВКА" if kind=="delivery" else "ВЫЛЕТ")
 	cargo_loaded = kind=="delivery"
-	beacon.visible = not cargo_loaded
-	if cargo_loaded:game.ship.look_at(nav_position())
+	beacon.visible = kind not in ["delivery","trade"]
+	if kind in ["delivery","trade"]:game.ship.look_at(nav_position())
 	game.clear_held_input()
 	game._save_progress()
 
@@ -90,12 +91,12 @@ func step(delta := 0.0) -> void:
 			game.clear_held_input()
 
 func can_dock() -> bool:
-	return stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА"] and (kind!="delivery" or cargo_loaded) and not game.destroyed and game.ship.position.distance_to(nav_position()) <= 14.0 and game.velocity.length() <= 5.0
+	return stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] and (kind!="delivery" or cargo_loaded) and not game.destroyed and game.ship.position.distance_to(nav_position()) <= 14.0 and game.velocity.length() <= 5.0
 
 func dock() -> void:
 	if not can_dock():return
 	var arrival: Vector3 = nav_position()
-	if kind=="delivery":game.station_id = destination
+	if kind in ["delivery","trade"]:game.station_id = destination
 	cargo_loaded = false
 	stage = "ЗАВЕРШЕНО"
 	game.velocity = Vector3.ZERO
@@ -109,7 +110,7 @@ func dock() -> void:
 	game._save_progress()
 
 func nav_position() -> Vector3:
-	if stage=="ДОСТАВКА":return Sector.dock_point(destination)
+	if stage in ["ДОСТАВКА","ПЕРЕЛЁТ"]:return Sector.dock_point(destination)
 	return Sector.dock_point(origin) if stage=="ВОЗВРАЩЕНИЕ" else BEACON
 
 func objective() -> String:
@@ -120,6 +121,7 @@ func objective() -> String:
 		"СКАНИРОВАНИЕ":return "ПРОСКАНИРУЙТЕ МАЯК"
 		"ВОЗВРАЩЕНИЕ":return "ВЕРНИТЕСЬ НА СТАНЦИЮ"
 		"ДОСТАВКА":return "ДОСТАВЬТЕ КОНТЕЙНЕР"
+		"ПЕРЕЛЁТ":return "ПЕРЕЛЁТ К ДРУГОЙ СТАНЦИИ"
 		"ЗАВЕРШЕНО":return "МИССИЯ ВЫПОЛНЕНА"
 		_:return "ВЫЛЕТ ПРЕРВАН"
 
@@ -128,12 +130,13 @@ func hint() -> String:
 	match stage:
 		"ВЫЛЕТ":return "До маяка %d м · прибавьте тягу" % distance
 		"СКАНИРОВАНИЕ":return "Сканирование %.1f/3 с · до 35 м, скорость до 8 м/с" % scan_elapsed
-		"ВОЗВРАЩЕНИЕ", "ДОСТАВКА":
-			if distance > 14:return "%s · до стыковки %d м" % [Sector.title(destination if kind=="delivery" else origin),distance]
+		"ВОЗВРАЩЕНИЕ", "ДОСТАВКА", "ПЕРЕЛЁТ":
+			if distance > 14:return "%s · до стыковки %d м" % [Sector.title(destination if kind in ["delivery","trade"] else origin),distance]
 			if game.velocity.length() > 5:return "Снизьте скорость до 5 м/с · тяга 0, стабилизация ВКЛ"
 			return "Стыковка разрешена · нажмите «СТЫКОВКА»"
 		_:return ""
 
 func reward() -> int:
+	if kind=="trade":return 0
 	if kind=="delivery":return 220
 	return 150 if kind=="scout" else REWARD

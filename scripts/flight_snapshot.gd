@@ -1,5 +1,5 @@
 extends RefCounted
-const STAGES := ["ВЫЛЕТ","БОЙ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА"]
+const STAGES := ["ВЫЛЕТ","БОЙ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"]
 const TACTICS := ["СБЛИЖЕНИЕ","АТАКА","УКЛОНЕНИЕ","РАЗВОРОТ"]
 
 func vec(v: Vector3) -> Array:return [v.x,v.y,v.z]
@@ -18,7 +18,7 @@ func capture(game: Node3D) -> Dictionary:
 		if pilot != null:
 			data["ai"] = {"state":pilot.state,"time":pilot.state_time,"cooldown":pilot.cooldown,"waypoint":vec(pilot.waypoint),"passes":pilot.passes,"enabled":pilot.enabled}
 		targets.append(data)
-	return {"version":2,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
+	return {"version":3,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
 
 func _number(v, low: float, high: float) -> bool:
 	return typeof(v) in [TYPE_INT,TYPE_FLOAT] and is_finite(float(v)) and float(v)>=low and float(v)<=high
@@ -33,10 +33,12 @@ func _rotation(v) -> bool:
 	return length>.5 and length<1.5
 
 func valid(s: Dictionary) -> bool:
-	if s.get("version") != 1 and s.get("version") != 2:return false
-	if s.get("stage") not in STAGES or s.get("kind") not in ["combat","scout","delivery"]:return false
+	if s.get("version") != 1 and s.get("version") != 2 and s.get("version") != 3:return false
+	if s.get("stage") not in STAGES or s.get("kind") not in ["combat","scout","delivery","trade"]:return false
 	if s.version==1 and s.kind=="delivery":return false
-	if s.version==2:
+	if s.version!=3 and (s.kind=="trade" or s.stage=="ПЕРЕЛЁТ"):return false
+	if (s.kind=="trade") != (s.stage=="ПЕРЕЛЁТ"):return false
+	if s.version>=2:
 		for key in ["origin","destination"]:
 			if not _number(s.get(key),0,1) or float(int(s[key]))!=float(s[key]):return false
 		if int(s.origin)==int(s.destination) or typeof(s.get("cargo"))!=TYPE_BOOL:return false

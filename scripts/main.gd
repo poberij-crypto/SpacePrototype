@@ -2,6 +2,9 @@ extends Node3D
 
 const SAVE_PATH := "user://space_prototype.json"
 const Sector = preload("res://scripts/sector_data.gd")
+const Trade = preload("res://scripts/trade_data.gd")
+var cargo: Dictionary = Trade.empty_cargo()
+var trade_note := ""
 var station_id := 0
 var store = preload("res://scripts/checkpoint_store.gd").new()
 var snapshots = preload("res://scripts/flight_snapshot.gd").new()
@@ -131,7 +134,7 @@ func _build_hud() -> void:
 	stable_button = flight_ui.stable_button
 
 func _input(event: InputEvent) -> void:
-	if mission.flight_locked() or flight_ui.map_panel.visible:return
+	if mission.flight_locked() or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
 	if event is InputEventScreenTouch:
 		if not event.pressed and event.index == fire_touch:
 			fire_touch = -1
@@ -155,7 +158,7 @@ func _input(event: InputEvent) -> void:
 		joystick.queue_redraw()
 
 func _physics_process(delta: float) -> void:
-	if upgrades_panel.visible or flight_ui.map_panel.visible:return
+	if upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
 	mission.step(delta)
 	if destroyed or mission.flight_locked():
 		if destroyed and not pending_snapshot.is_empty():pending_snapshot.clear()
@@ -268,9 +271,10 @@ func _update_hud() -> void:
 	if not at_station() or not pending_snapshot.is_empty():upgrade_info.text += "Установка — только на станции"
 
 func _save_progress() -> bool:
+	if destroyed:cargo = Trade.empty_cargo()
 	var flight: Dictionary = snapshots.capture(self) if mission!=null and ship!=null else {}
 	if flight.is_empty() and not pending_snapshot.is_empty() and not destroyed:flight = pending_snapshot.duplicate(true)
-	var data := {"schema":2,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
+	var data := {"schema":3,"cargo":cargo,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
 	var ok: bool = store.write_document(data)
 	save_error = "" if ok else "Не удалось сохранить игру"
 	return ok
@@ -279,13 +283,14 @@ func _load_progress() -> void:
 	var data: Dictionary = store.read_document()
 	if data.is_empty():return
 	credits = maxi(0,int(data.get("credits",0)))
+	cargo = Trade.read_cargo(data.get("cargo",{}))
 	training_runs = maxi(0,int(data.get("training_runs",0)))
 	station_id = clampi(int(data.get("station_id",0)),0,1)
 	for key in upgrades:upgrades[key] = clampi(int(data.upgrades.get(key,0)),0,3)
 	shield = 100.0+upgrades.shield*25.0
 	hull = clampf(float(data.get("station_hull",100.0)),1,100)
 	selected_mission = str(data.get("selected_mission","combat"))
-	if selected_mission not in ["combat","scout","delivery"]:selected_mission = "combat"
+	if selected_mission not in ["combat","scout","delivery","trade"]:selected_mission = "combat"
 	var flight = data.get("flight",{})
 	pending_snapshot = flight.duplicate(true) if typeof(flight)==TYPE_DICTIONARY else {}
 	profile_note = "Загружена резервная копия сохранения." if store.recovered else ""
@@ -305,12 +310,15 @@ func repair_at_station() -> void:
 	_update_hud()
 
 func choose_mission(kind: String) -> void:
-	if not at_station() or not pending_snapshot.is_empty() or kind not in ["combat","scout","delivery"]:return
+	if not at_station() or not pending_snapshot.is_empty() or kind not in ["combat","scout","delivery","trade"]:return
 	selected_mission = kind
 	_save_progress()
 
 func start_selected_mission() -> void:
 	if not at_station() or not pending_snapshot.is_empty():return
+	if selected_mission=="delivery" and cargo_used()+Trade.CONTRACT_SIZE>Trade.CAPACITY:
+		trade_note = "Для контейнера нужны 2 свободные единицы отсека."
+		return
 	if mission.stage == "ЗАВЕРШЕНО":
 		for target in enemies:target.queue_free()
 		enemies.clear()
@@ -360,3 +368,48 @@ func _notification(what: int) -> void:
 func _toggle_map() -> void:
 	clear_held_input()
 	flight_ui.map_panel.visible = not flight_ui.map_panel.visible
+
+func cargo_used() -> int:
+	var contract: bool = mission!=null and mission.cargo_loaded
+	if not pending_snapshot.is_empty():contract = bool(pending_snapshot.get("cargo",false))
+	return Trade.used(cargo)+(Trade.CONTRACT_SIZE if contract and not destroyed else 0)
+
+func can_trade() -> bool:
+	return at_station() and pending_snapshot.is_empty() and not destroyed
+
+func can_trade_goods(good: String, quantity: int, buying: bool) -> bool:
+	if not can_trade() or good not in Trade.GOODS or quantity<=0 or quantity>Trade.CAPACITY:return false
+	if buying:return cargo_used()+quantity<=Trade.CAPACITY and credits>=Trade.price(good,station_id,true)*quantity
+	return int(cargo.get(good,0))>=quantity
+
+func trade_goods(good: String, quantity: int, buying: bool) -> bool:
+	if not can_trade_goods(good,quantity,buying):
+		trade_note = "Сделка недоступна: проверьте станцию, баланс и место в отсеке."
+		return false
+	var previous_credits := credits
+	var previous_cargo: Dictionary = cargo.duplicate()
+	var total := Trade.price(good,station_id,buying)*quantity
+	credits += -total if buying else total
+	cargo[good] += quantity if buying else -quantity
+	if not _save_progress():
+		credits = previous_credits
+		cargo = previous_cargo
+		trade_note = "Не удалось сохранить сделку. Кредиты и груз возвращены."
+		return false
+	trade_note = "%s: %d ед. · %d кр." % ["Куплено" if buying else "Продано",quantity,total]
+	_update_hud()
+	return true
+
+func _toggle_market() -> void:
+	clear_held_input()
+	flight_ui.market_panel.visible = not flight_ui.market_panel.visible
+	if flight_ui.market_panel.visible:
+		flight_ui.map_panel.visible = false
+		upgrades_panel.visible = false
+		trade_note = ""
+
+func start_trade_flight() -> void:
+	if not can_trade():return
+	choose_mission("trade")
+	start_selected_mission()
+	flight_ui.market_panel.visible = false

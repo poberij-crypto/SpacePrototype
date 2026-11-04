@@ -86,5 +86,5 @@ func _draw() -> void:
 	var footer := chart.end.y+40
 	var distance: int = int(game.ship.position.distance_to(Sector.position(selected)))
 	text_at(Vector2(rect.position.x+24,footer),"Станция «%s» · %d м" % [Sector.title(selected),distance],20)
-	text_at(Vector2(rect.position.x+24,footer+28),"Задания, ремонт корпуса, установка модулей",15,DIM)
+	text_at(Vector2(rect.position.x+24,footer+28),"Рынок, задания, ремонт и модули",15,DIM)
 	text_at(Vector2(rect.position.x+24,rect.end.y-78),"ПОЛЁТ ПРИОСТАНОВЛЕН",14,CYAN)
