@@ -148,7 +148,7 @@ func set_camera(in_cockpit: bool) -> void:
 
 func update_flight(thrust: float) -> void:
 	for plume in plumes:
-		plume.scale.y = .15 + thrust*.9
+		plume.scale.y = .15 + maxf(0,thrust)*.9
 		plume.position.z = 2.4 + .85*plume.scale.y
 
 func _build_space() -> void:

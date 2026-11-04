@@ -413,3 +413,7 @@ func start_trade_flight() -> void:
 	choose_mission("trade")
 	start_selected_mission()
 	flight_ui.market_panel.visible = false
+
+func adjust_throttle(amount: float) -> void:
+	var next := clampf(snappedf(throttle+amount,.1),-.3,1.0)
+	throttle = 0.0 if next*throttle<0 else next

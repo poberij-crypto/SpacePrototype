@@ -50,8 +50,8 @@ func setup(owner_game: Node3D) -> void:
 	camera_button = button("КАМЕРА · СНАРУЖИ", Rect2(990, 24, 264, 48), game._toggle_camera)
 	button("МОДУЛИ", Rect2(990, 84, 126, 48), game._toggle_upgrades)
 	button("МЕНЮ", Rect2(1128, 84, 126, 48), game.save_to_menu)
-	button("+", Rect2(960, 458, 92, 76), func(): game.throttle = minf(1.0, game.throttle + 0.2))
-	button("−", Rect2(960, 548, 92, 76), func(): game.throttle = maxf(0.0, game.throttle - 0.2))
+	button("+", Rect2(960, 458, 92, 76), func(): game.adjust_throttle(0.2))
+	button("−", Rect2(960, 548, 92, 76), func(): game.adjust_throttle(-0.2))
 	fire_button = button("ОГОНЬ\nУДЕРЖИВАТЬ", Rect2(1080, 478, 174, 146), func(): pass, true)
 	fire_button.button_down.connect(func(): game.firing = true)
 	fire_button.button_up.connect(func(): game.firing = false)
@@ -236,7 +236,7 @@ func _draw() -> void:
 	txt(Vector2(468, 647), "%03d" % int(game.velocity.length()), 43)
 	txt(Vector2(556, 648), "м/с", 16, DIM)
 	txt(Vector2(650, 597), "ТЯГА  %d%%" % int(game.throttle * 100), 16, CYAN)
-	bar(Vector2(650, 624), 186, game.throttle, CYAN)
+	thrust_bar(Vector2(650,624),186)
 	txt(Vector2(468, 677), "СТАБИЛИЗИРОВАННЫЙ ПОЛЁТ" if game.stabilized else "ИНЕРЦИЯ · ДВИЖЕНИЕ СОХРАНЯЕТСЯ", 13, DIM if game.stabilized else AMBER)
 	txt(Vector2(966, 440), "ТЯГА", 14, DIM)
 	_radar()
@@ -324,7 +324,7 @@ func _draw_portrait() -> void:
 	txt(Vector2(298,900),"%03d" % int(game.velocity.length()),43)
 	txt(Vector2(386,900),"м/с",16,DIM)
 	txt(Vector2(486,850),"ТЯГА %d%%" % int(game.throttle*100),16,CYAN)
-	bar(Vector2(486,878),192,game.throttle,CYAN)
+	thrust_bar(Vector2(486,878),192)
 	txt(Vector2(298,930),"СТАБИЛИЗАЦИЯ" if game.stabilized else "ИНЕРЦИОННЫЙ ПОЛЁТ",13,DIM)
 	txt(Vector2(380,1002),"ТЯГА",14,DIM)
 	if game.destroyed:
@@ -491,3 +491,10 @@ func _build_market() -> void:
 	market_panel = preload("res://scripts/market_panel.gd").new()
 	content.add_child(market_panel)
 	market_panel.setup(game)
+
+func thrust_bar(p: Vector2, width: float) -> void:
+	var zero := width*.3/1.3
+	draw_rect(Rect2(p,Vector2(width,5)),Color("1d3444"))
+	var endpoint: float = (game.throttle+.3)/1.3*width
+	draw_rect(Rect2(p+Vector2(minf(zero,endpoint),0),Vector2(absf(endpoint-zero),5)),AMBER if game.throttle<0 else CYAN)
+	draw_line(p+Vector2(zero,-4),p+Vector2(zero,9),WHITE,1)

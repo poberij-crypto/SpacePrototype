@@ -18,7 +18,7 @@ func capture(game: Node3D) -> Dictionary:
 		if pilot != null:
 			data["ai"] = {"state":pilot.state,"time":pilot.state_time,"cooldown":pilot.cooldown,"waypoint":vec(pilot.waypoint),"passes":pilot.passes,"enabled":pilot.enabled}
 		targets.append(data)
-	return {"version":3,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
+	return {"version":4,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
 
 func _number(v, low: float, high: float) -> bool:
 	return typeof(v) in [TYPE_INT,TYPE_FLOAT] and is_finite(float(v)) and float(v)>=low and float(v)<=high
@@ -33,10 +33,10 @@ func _rotation(v) -> bool:
 	return length>.5 and length<1.5
 
 func valid(s: Dictionary) -> bool:
-	if s.get("version") != 1 and s.get("version") != 2 and s.get("version") != 3:return false
+	if s.get("version") != 1 and s.get("version") != 2 and s.get("version") != 3 and s.get("version") != 4:return false
 	if s.get("stage") not in STAGES or s.get("kind") not in ["combat","scout","delivery","trade"]:return false
 	if s.version==1 and s.kind=="delivery":return false
-	if s.version!=3 and (s.kind=="trade" or s.stage=="ПЕРЕЛЁТ"):return false
+	if s.version<3 and (s.kind=="trade" or s.stage=="ПЕРЕЛЁТ"):return false
 	if (s.kind=="trade") != (s.stage=="ПЕРЕЛЁТ"):return false
 	if s.version>=2:
 		for key in ["origin","destination"]:
@@ -49,7 +49,7 @@ func valid(s: Dictionary) -> bool:
 	if not _rotation(s.get("rot")):return false
 	for key in ["stabilized","cockpit"]:
 		if typeof(s.get(key)) != TYPE_BOOL:return false
-	if not _number(s.get("hull"),.01,100) or not _number(s.get("shield"),0,175) or not _number(s.get("throttle"),0,1) or not _number(s.get("scan"),0,3) or not _number(s.get("fire_timer"),-100000,1):return false
+	if not _number(s.get("hull"),.01,100) or not _number(s.get("shield"),0,175) or not _number(s.get("throttle"),-.3 if s.version>=4 else 0,1) or not _number(s.get("scan"),0,3) or not _number(s.get("fire_timer"),-100000,1):return false
 	if typeof(s.get("targets")) != TYPE_ARRAY or s.targets.size()>3:return false
 	var ids: Array = []
 	for target in s.targets:
