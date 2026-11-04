@@ -1,6 +1,7 @@
 ; Godot 4 project
 config_version=5
 [application]
+config/icon="res://icon.svg"
 config/name="Space Prototype"
 run/main_scene="res://main.tscn"
 [display]

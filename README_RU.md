@@ -39,4 +39,4 @@ Godot 4.5.1, Android ARM64, min SDK 24, target SDK 35, версия 0.8.0 / ко
 Это тестовая версия с временными процедурными моделями и фиксированной экономикой двух станций. Реальную производительность и управление на Android нужно проверить на устройстве.
 
 
-Архитектура: `trade_data.gd` — товары и цены, `market_panel.gd` — рынок, `main.gd` — сделки и сохранение, `training_mission.gd` — перелёты/контракты, `flight_snapshot.gd` — продолжение вылетов. Локальная история Git ведётся в ветке `feat/trading-0.8`; удалённый GitHub-репозиторий в исходном архиве не был настроен.
+Архитектура: `trade_data.gd` — товары и цены, `market_panel.gd` — рынок, `main.gd` — сделки и сохранение, `training_mission.gd` — перелёты/контракты, `flight_snapshot.gd` — продолжение вылетов. Локальная история Git ведётся в ветке `feat/trading-0.8`. В архив добавлен `SpacePrototype-history.bundle`; восстановление истории: `git clone SpacePrototype-history.bundle SpacePrototype-history`. Удалённый GitHub-репозиторий в исходном архиве не был настроен, поиск доступного репозитория SpacePrototype результатов не дал; отправка в GitHub не выполнена.
