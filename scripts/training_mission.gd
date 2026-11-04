@@ -44,15 +44,16 @@ func setup(owner_game: Node3D) -> void:
 			target.get_node("PilotAI").enabled = false
 
 func flight_locked() -> bool:
-	return stage == "ИНСТРУКТАЖ" or stage == "ЗАВЕРШЕНО" or stage == "ПРОВАЛ"
+	return stage in ["ИНСТРУКТАЖ","ЗАВЕРШЕНО","ПРОВАЛ","СПУСК","ПОСАДКА","НА ПОВЕРХНОСТИ","ВЗЛЁТ","ВЫХОД НА ОРБИТУ"]
 
 func launch() -> void:
 	if stage != "ИНСТРУКТАЖ":return
 	if kind=="delivery" and game.cargo_used()+game.Trade.CONTRACT_SIZE>game.Trade.CAPACITY:return
 	stage = "ПЕРЕЛЁТ" if kind=="trade" else ("ДОСТАВКА" if kind=="delivery" else "ВЫЛЕТ")
+	if kind=="planet":stage="К ПЛАНЕТЕ"
 	cargo_loaded = kind=="delivery"
-	beacon.visible = kind not in ["delivery","trade"]
-	if kind in ["delivery","trade"]:game.ship.look_at(nav_position())
+	beacon.visible = kind not in ["delivery","trade","planet"]
+	if kind in ["delivery","trade","planet"]:game.ship.look_at(nav_position())
 	game.clear_held_input()
 	game._save_progress()
 
@@ -110,10 +111,13 @@ func dock() -> void:
 	game._save_progress()
 
 func nav_position() -> Vector3:
+	if kind=="planet" and stage!="ВОЗВРАЩЕНИЕ":
+		return Vector3.ZERO if game.planet.on_surface() else game.planet.ENTRY
 	if stage in ["ДОСТАВКА","ПЕРЕЛЁТ"]:return Sector.dock_point(destination)
 	return Sector.dock_point(origin) if stage=="ВОЗВРАЩЕНИЕ" else BEACON
 
 func objective() -> String:
+	if kind=="planet" and stage not in ["ИНСТРУКТАЖ","ЗАВЕРШЕНО","ПРОВАЛ","ВОЗВРАЩЕНИЕ"]:return "АСТРА / РАЙОН МЕРИДИАН"
 	match stage:
 		"ИНСТРУКТАЖ":return "МЕНЮ СТАНЦИИ"
 		"ВЫЛЕТ":return "ЛЕТИТЕ К МАЯКУ"
@@ -137,6 +141,6 @@ func hint() -> String:
 		_:return ""
 
 func reward() -> int:
-	if kind=="trade":return 0
+	if kind in ["trade","planet"]:return 0
 	if kind=="delivery":return 220
 	return 150 if kind=="scout" else REWARD

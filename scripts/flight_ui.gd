@@ -3,6 +3,7 @@ extends Control
 const Sector = preload("res://scripts/sector_data.gd")
 var market_panel: Control
 var market_button: Button
+var planet_panel: Control
 var map_panel: Control
 var map_button: Button
 var delivery_choice: Button
@@ -96,6 +97,9 @@ func setup(owner_game: Node3D) -> void:
 	_build_mission_panel()
 	_build_sector_map()
 	_build_market()
+	planet_panel = preload("res://scripts/planet_ui.gd").new()
+	content.add_child(planet_panel)
+	planet_panel.setup(game)
 	_layout()
 
 func style(bg: Color, border: Color) -> StyleBoxFlat:
@@ -115,6 +119,8 @@ func decorate(b: Button, primary := false) -> void:
 	b.add_theme_stylebox_override("pressed", style(Color("20677b"), CYAN))
 	b.add_theme_stylebox_override("hover", style(Color("17394b"), CYAN))
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.add_theme_stylebox_override("disabled",style(Color(.025,.07,.11,.80),Color("203847")))
+	b.add_theme_color_override("font_disabled_color",Color("69818c"))
 	b.add_theme_color_override("font_color", WHITE)
 	b.add_theme_font_size_override("font_size", 18)
 	b.focus_mode = Control.FOCUS_NONE
@@ -197,7 +203,7 @@ func _draw() -> void:
 		return
 	panel(Rect2(24, 24, 260, 48))
 	draw_circle(Vector2(44, 48), 4, CYAN)
-	txt(Vector2(58, 55), "СКИФ / УЧЕБНЫЙ ПОЛЁТ", 17)
+	txt(Vector2(58, 55), "СКИФ / АСТРА" if game.planet.on_surface() else "СКИФ / УЧЕБНЫЙ ПОЛЁТ", 17)
 	panel(Rect2(24, 86, 260, 126))
 	txt(Vector2(42, 113), "КОРПУС", 14, DIM)
 	txt(Vector2(220, 113), "%d%%" % maxi(0, int(game.hull)), 16)
@@ -284,6 +290,9 @@ func _radar() -> void:
 	draw_line(c - Vector2(60,0), c + Vector2(60,0), Color("244355"))
 	draw_line(c - Vector2(0,60), c + Vector2(0,60), Color("244355"))
 	draw_colored_polygon(PackedVector2Array([c+Vector2(0,-6), c+Vector2(-4,5), c+Vector2(4,5)]), CYAN)
+	if game.planet.on_surface():
+		var base: Vector3 = game.ship.global_basis.inverse()*(-game.ship.global_position)
+		draw_circle(c+Vector2(base.x,base.z).limit_length(560)*.1,4,AMBER)
 	for target in game.enemies:
 		if not is_instance_valid(target) or not target.visible:
 			continue
@@ -291,7 +300,7 @@ func _radar() -> void:
 		var point := Vector2(relative.x, relative.z) * 0.35
 		point = point.limit_length(56)
 		draw_circle(c + point, 3, RED if target.get_meta("hostile") else AMBER)
-	txt(Vector2(80,803) if portrait else Vector2(310,550), "РАДАР · 160 м", 12, DIM)
+	txt(Vector2(80,803) if portrait else Vector2(310,550), "ПЛОЩАДКА · 560 м" if game.planet.on_surface() else "РАДАР · 160 м", 12, DIM)
 
 func _draw_portrait() -> void:
 	panel(Rect2(24,24,300,48))
@@ -409,8 +418,9 @@ func _update_mission_panel() -> void:
 	var locked: bool = m.flight_locked()
 	var pending: bool = not game.pending_snapshot.is_empty()
 	var station: bool = game.at_station()
-	mission_panel.visible = locked and not upgrades_panel.visible and not market_panel.visible
-	fire_button.disabled = locked
+	mission_panel.visible = (station or m.stage=="ПРОВАЛ") and not upgrades_panel.visible and not market_panel.visible
+	fire_button.disabled = locked or m.kind=="planet"
+	fire_button.visible = m.kind!="planet" or station or m.stage=="ПРОВАЛ"
 	controls["+"].disabled = locked
 	controls["−"].disabled = locked
 	dock_button.visible = m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] and not upgrades_panel.visible and not market_panel.visible
@@ -437,6 +447,7 @@ func _update_mission_panel() -> void:
 		var task := "Учебный бой: уничтожить противника.\nНаграда: 300 кр. + боевая награда."
 		if game.selected_mission=="scout":task = "Разведка: сканировать маяк 3 секунды.\nДо 35 м, скорость до 8 м/с. Награда: 150 кр."
 		if game.selected_mission=="delivery":task = "Контейнер оборудования → «%s».\nНаграда: 220 кр. Нужны 2 свободные ед." % Sector.title(1-game.station_id)
+		if game.selected_mission=="planet":task = "Экспедиция на Астру: район Меридиан.\nПосадка и взлёт. Награда не начисляется."
 		if game.selected_mission=="trade":task = "Свободный перелёт → «%s».\nТовары продаются вручную через «ГРУЗ»." % Sector.title(1-game.station_id)
 		mission_body.text = "Баланс: %d кр. · Корпус: %d%%\nСтанция «%s» · Вылетов: %d\n%s" % [game.credits,int(game.hull),Sector.title(game.station_id),game.training_runs,task]
 		if mission_button.disabled:mission_body.text += "\nОсвободите 2 ед. отсека через «ГРУЗ»."
@@ -455,7 +466,7 @@ func _update_mission_panel() -> void:
 
 func _draw_navigation(camera: Camera3D) -> void:
 	var m = game.mission
-	if m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"]:return
+	if m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ","К ПЛАНЕТЕ"]:return
 	if m.can_dock():return
 	var destination: Vector3 = m.nav_position()
 	var delta: Vector3 = destination-camera.global_position
@@ -475,6 +486,7 @@ func _draw_navigation(camera: Camera3D) -> void:
 	else:
 		draw_polyline(PackedVector2Array([p+Vector2(0,-16),p+Vector2(16,0),p+Vector2(0,16),p+Vector2(-16,0),p+Vector2(0,-16)]),CYAN,2,true)
 	var label := Sector.title(m.destination if m.stage in ["ДОСТАВКА","ПЕРЕЛЁТ"] else m.origin) if m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] else "МАЯК"
+	if m.stage=="К ПЛАНЕТЕ":label="ВХОД НА АСТРУ"
 	if camera.is_position_behind(destination):label += " ПОЗАДИ"
 	var text_pos := Vector2(clampf(p.x-55,30,design_size.x-230),p.y+35)
 	txt(text_pos,label+" %d м" % int(game.ship.position.distance_to(destination)),14,CYAN)

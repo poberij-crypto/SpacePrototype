@@ -1,4 +1,8 @@
 extends Node3D
+var sun_light: DirectionalLight3D
+var space_root: Node3D
+var world_environment: WorldEnvironment
+var space_environment: Environment
 var body: Node3D
 var cabin: Node3D
 var plumes: Array[MeshInstance3D] = []
@@ -152,6 +156,8 @@ func update_flight(thrust: float) -> void:
 		plume.position.z = 2.4 + .85*plume.scale.y
 
 func _build_space() -> void:
+	space_root = Node3D.new()
+	game.add_child(space_root)
 	var environment := WorldEnvironment.new()
 	var settings := Environment.new()
 	settings.background_mode = Environment.BG_SKY
@@ -166,8 +172,12 @@ func _build_space() -> void:
 	settings.ambient_light_energy = .45
 	settings.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.environment = settings
+	world_environment = environment
+	space_environment = settings
 	game.add_child(environment)
 	var sun := DirectionalLight3D.new()
+	sun_light=sun
+	sun.directional_shadow_max_distance=180
 	sun.rotation_degrees = Vector3(-35,-30,0)
 	sun.light_color = Color("ffe4cb")
 	sun.light_energy = 2.0
@@ -184,14 +194,14 @@ func _build_space() -> void:
 	sphere.rings = 48
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://shaders/planet.gdshader")
-	var planet := mesh(game,sphere,Vector3(170,-40,-360),material)
+	var planet := mesh(space_root,sphere,Vector3(170,-40,-360),material)
 	planet.rotation_degrees = Vector3(25,-20,0)
 	var air_mesh := sphere.duplicate() as SphereMesh
 	air_mesh.radius = 71.2
 	air_mesh.height = 142.4
 	var air := ShaderMaterial.new()
 	air.shader = preload("res://shaders/atmosphere.gdshader")
-	mesh(game,air_mesh,planet.position,air)
+	mesh(space_root,air_mesh,planet.position,air)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 481516
 	var stone := mat(Color("363339"))
@@ -203,7 +213,7 @@ func _build_space() -> void:
 		shape.height = shape.radius*2
 		shape.radial_segments = 12
 		shape.rings = 6
-		var rock := mesh(game,shape,Vector3(rng.randf_range(-140,140),rng.randf_range(-70,70),rng.randf_range(-300,-35)),stone)
+		var rock := mesh(space_root,shape,Vector3(rng.randf_range(-140,140),rng.randf_range(-70,70),rng.randf_range(-300,-35)),stone)
 		rock.scale = Vector3(rng.randf_range(.7,1.5),rng.randf_range(.6,1.3),rng.randf_range(.8,1.7))
 		rock.rotation = Vector3(rng.randf()*TAU,rng.randf()*TAU,rng.randf()*TAU)
 	_build_station(Vector3(35,0,-105))
@@ -213,7 +223,7 @@ func _build_station(location: Vector3, outpost := false) -> void:
 	var station := Node3D.new()
 	station.position = location
 	if outpost:station.rotation_degrees.z = 30
-	game.add_child(station)
+	space_root.add_child(station)
 	var spine := cylinder(station,1.7,15,Vector3.ZERO,steel)
 	spine.rotation_degrees.x = 90
 	var ring := TorusMesh.new()

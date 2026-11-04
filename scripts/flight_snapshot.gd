@@ -1,5 +1,6 @@
 extends RefCounted
 const STAGES := ["ВЫЛЕТ","БОЙ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"]
+const Planet = preload("res://scripts/planet_flight.gd")
 const TACTICS := ["СБЛИЖЕНИЕ","АТАКА","УКЛОНЕНИЕ","РАЗВОРОТ"]
 
 func vec(v: Vector3) -> Array:return [v.x,v.y,v.z]
@@ -10,7 +11,7 @@ func vector(value: Array) -> Vector3:return Vector3(value[0],value[1],value[2])
 func rotation(value: Array) -> Basis:return Basis(Quaternion(value[0],value[1],value[2],value[3]).normalized())
 
 func capture(game: Node3D) -> Dictionary:
-	if game.mission.stage not in STAGES or game.destroyed:return {}
+	if game.mission.stage not in STAGES+Planet.STAGES or game.destroyed:return {}
 	var targets: Array = []
 	for target in game.enemies:
 		var data := {"id":target.get_meta("id"),"pos":vec(target.position),"rot":quat(target),"hp":target.get_meta("health"),"visible":target.visible}
@@ -18,7 +19,7 @@ func capture(game: Node3D) -> Dictionary:
 		if pilot != null:
 			data["ai"] = {"state":pilot.state,"time":pilot.state_time,"cooldown":pilot.cooldown,"waypoint":vec(pilot.waypoint),"passes":pilot.passes,"enabled":pilot.enabled}
 		targets.append(data)
-	return {"version":4,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
+	return {"planet":game.planet.capture() if game.planet!=null and game.mission.kind=="planet" else {},"version":4,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
 
 func _number(v, low: float, high: float) -> bool:
 	return typeof(v) in [TYPE_INT,TYPE_FLOAT] and is_finite(float(v)) and float(v)>=low and float(v)<=high
@@ -34,7 +35,10 @@ func _rotation(v) -> bool:
 
 func valid(s: Dictionary) -> bool:
 	if s.get("version") != 1 and s.get("version") != 2 and s.get("version") != 3 and s.get("version") != 4:return false
-	if s.get("stage") not in STAGES or s.get("kind") not in ["combat","scout","delivery","trade"]:return false
+	if s.get("stage") not in STAGES+Planet.STAGES or s.get("kind") not in ["combat","scout","delivery","trade","planet"]:return false
+	if s.kind=="planet":
+		if s.version!=4 or s.stage not in Planet.STAGES+["ВОЗВРАЩЕНИЕ"] or not Planet.valid(s.get("planet"),s.stage):return false
+	elif s.stage in Planet.STAGES:return false
 	if s.version==1 and s.kind=="delivery":return false
 	if s.version<3 and (s.kind=="trade" or s.stage=="ПЕРЕЛЁТ"):return false
 	if (s.kind=="trade") != (s.stage=="ПЕРЕЛЁТ"):return false
@@ -108,6 +112,7 @@ func restore(game: Node3D, s: Dictionary) -> bool:
 		if not found:
 			game.enemies.erase(target)
 			target.queue_free()
+	if s.kind=="planet":game.planet.restore(s.planet)
 	game.mission.beacon.visible = game.mission.stage in ["ВЫЛЕТ","СКАНИРОВАНИЕ"]
 	game.clear_held_input()
 	game.mission.step()

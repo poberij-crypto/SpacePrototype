@@ -13,6 +13,7 @@ var selected_mission := "combat"
 var autosave_time := 0.0
 var save_error := ""
 var profile_note := ""
+var planet: Node
 var mission: Node
 var training_runs := 0
 var visuals: Node3D
@@ -51,6 +52,9 @@ func _ready() -> void:
 	mission = preload("res://scripts/training_mission.gd").new()
 	add_child(mission)
 	mission.setup(self)
+	planet = preload("res://scripts/planet_flight.gd").new()
+	add_child(planet)
+	planet.setup(self)
 	_build_hud()
 	_update_hud()
 
@@ -141,7 +145,7 @@ func _input(event: InputEvent) -> void:
 			firing = false
 			get_viewport().set_input_as_handled()
 			return
-		if event.pressed and fire_touch == -1 and not upgrades_panel.visible and flight_ui.fire_button.get_rect().has_point(flight_ui.to_design(event.position)):
+		if event.pressed and fire_touch == -1 and mission.kind!="planet" and not upgrades_panel.visible and flight_ui.fire_button.get_rect().has_point(flight_ui.to_design(event.position)):
 			fire_touch = event.index
 			firing = true
 			get_viewport().set_input_as_handled()
@@ -160,6 +164,13 @@ func _input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
 	mission.step(delta)
+	if planet.step(delta):
+		autosave_time += delta
+		if autosave_time>=3:
+			autosave_time=0
+			_save_progress()
+		_update_hud()
+		return
 	if destroyed or mission.flight_locked():
 		if destroyed and not pending_snapshot.is_empty():pending_snapshot.clear()
 		_update_hud()
@@ -176,6 +187,7 @@ func _physics_process(delta: float) -> void:
 		velocity += forward * throttle * delta * (6.0 + upgrades.engine)
 		velocity = velocity.limit_length(65.0 + upgrades.engine * 5.0)
 	ship.position += velocity * delta
+	planet.constrain_motion(delta)
 	visuals.update_flight(throttle)
 	fire_timer -= delta
 	if firing and fire_timer <= 0:
@@ -193,7 +205,7 @@ func _physics_process(delta: float) -> void:
 	_update_hud()
 
 func _shoot() -> void:
-	if mission.flight_locked():return
+	if mission.flight_locked() or mission.kind=="planet":return
 	var chosen: Node3D = null
 	var best := 0.96
 	for target in enemies:
@@ -252,8 +264,7 @@ func _toggle_stabilization() -> void:
 
 func _toggle_upgrades() -> void:
 	upgrades_panel.visible = not upgrades_panel.visible
-	firing = false
-	fire_touch = -1
+	clear_held_input()
 	_update_hud()
 
 func _buy(kind: String) -> void:
@@ -290,7 +301,7 @@ func _load_progress() -> void:
 	shield = 100.0+upgrades.shield*25.0
 	hull = clampf(float(data.get("station_hull",100.0)),1,100)
 	selected_mission = str(data.get("selected_mission","combat"))
-	if selected_mission not in ["combat","scout","delivery","trade"]:selected_mission = "combat"
+	if selected_mission not in ["combat","scout","delivery","trade","planet"]:selected_mission = "combat"
 	var flight = data.get("flight",{})
 	pending_snapshot = flight.duplicate(true) if typeof(flight)==TYPE_DICTIONARY else {}
 	profile_note = "Загружена резервная копия сохранения." if store.recovered else ""
@@ -310,7 +321,7 @@ func repair_at_station() -> void:
 	_update_hud()
 
 func choose_mission(kind: String) -> void:
-	if not at_station() or not pending_snapshot.is_empty() or kind not in ["combat","scout","delivery","trade"]:return
+	if not at_station() or not pending_snapshot.is_empty() or kind not in ["combat","scout","delivery","trade","planet"]:return
 	selected_mission = kind
 	_save_progress()
 
@@ -359,6 +370,7 @@ func clear_held_input() -> void:
 	fire_touch = -1
 	turn_input = Vector2.ZERO
 	firing = false
+	if planet!=null:planet.vertical=0
 
 func _notification(what: int) -> void:
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT,NOTIFICATION_APPLICATION_PAUSED,NOTIFICATION_WM_CLOSE_REQUEST]:
@@ -417,3 +429,8 @@ func start_trade_flight() -> void:
 func adjust_throttle(amount: float) -> void:
 	var next := clampf(snappedf(throttle+amount,.1),-.3,1.0)
 	throttle = 0.0 if next*throttle<0 else next
+
+func start_planet_flight() -> void:
+	if not can_trade():return
+	choose_mission("planet")
+	start_selected_mission()

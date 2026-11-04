@@ -23,7 +23,7 @@ func chart_rect() -> Rect2:
 	return Rect2(50,360,620,440) if game.flight_ui.portrait else Rect2(220,160,840,310)
 func project(pos: Vector3) -> Vector2:
 	var chart := chart_rect()
-	var uv := Vector2((pos.x+400.0)/800.0,(pos.z+650.0)/650.0)
+	var uv := Vector2((pos.x+900.0)/1800.0,(pos.z+900.0)/1800.0) if game.planet.on_surface() else Vector2((pos.x+400.0)/800.0,(pos.z+650.0)/650.0)
 	return chart.position+Vector2(clampf(uv.x,0,1),clampf(uv.y,0,1))*chart.size
 
 func _process(_delta: float) -> void:
@@ -41,7 +41,7 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventScreenTouch:
 		pressed = event.pressed
 		point = event.position
-	if pressed:
+	if pressed and not game.planet.on_surface():
 		for i in range(2):
 			if point.distance_to(project(Sector.position(i)))<30:selected = i
 		accept_event()
@@ -51,6 +51,9 @@ func text_at(point: Vector2, value: String, font_size := 18, color := Color("e9f
 
 func _draw() -> void:
 	if game==null:return
+	if game.planet.on_surface():
+		_draw_surface()
+		return
 	draw_rect(Rect2(Vector2.ZERO,size),Color(.005,.015,.03,.97))
 	var rect := panel_rect()
 	draw_style_box(game.flight_ui.style(Color("0c1b2b"),Color("285366")),rect)
@@ -87,4 +90,21 @@ func _draw() -> void:
 	var distance: int = int(game.ship.position.distance_to(Sector.position(selected)))
 	text_at(Vector2(rect.position.x+24,footer),"Станция «%s» · %d м" % [Sector.title(selected),distance],20)
 	text_at(Vector2(rect.position.x+24,footer+28),"Рынок, задания, ремонт и модули",15,DIM)
+	text_at(Vector2(rect.position.x+24,rect.end.y-78),"ПОЛЁТ ПРИОСТАНОВЛЕН",14,CYAN)
+
+func _draw_surface() -> void:
+	draw_rect(Rect2(Vector2.ZERO,size),Color(.005,.015,.03,.97))
+	var rect:=panel_rect();var chart:=chart_rect()
+	draw_style_box(game.flight_ui.style(Color("0c1b2b"),Color("285366")),rect)
+	text_at(rect.position+Vector2(24,38),"АСТРА / РАЙОН МЕРИДИАН",24,CYAN)
+	text_at(rect.position+Vector2(24,66),"Локальная карта · 1.8 × 1.8 км",15,DIM)
+	draw_rect(chart,Color("172b31"))
+	for i in range(7):
+		var f:=float(i)/6
+		draw_line(chart.position+Vector2(chart.size.x*f,0),chart.position+Vector2(chart.size.x*f,chart.size.y),Color("31515b"))
+		draw_line(chart.position+Vector2(0,chart.size.y*f),chart.position+Vector2(chart.size.x,chart.size.y*f),Color("31515b"))
+	var pad:=project(Vector3.ZERO);draw_circle(pad,7,Color("ffc46a"));text_at(pad+Vector2(15,-12),"Посадочная площадка",16)
+	var p:=project(game.ship.position);draw_circle(p,6,CYAN);text_at(p+Vector2(12,20),"ВЫ",14,CYAN)
+	text_at(Vector2(rect.position.x+24,chart.end.y+40),"Высота %d м · Скорость %d м/с" % [int(game.planet.altitude()),int(game.velocity.length())],20)
+	text_at(Vector2(rect.position.x+24,chart.end.y+70),"Посадка на ровных участках · орбита от 100 м",15,DIM)
 	text_at(Vector2(rect.position.x+24,rect.end.y-78),"ПОЛЁТ ПРИОСТАНОВЛЕН",14,CYAN)
