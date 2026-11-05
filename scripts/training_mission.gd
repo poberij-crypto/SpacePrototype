@@ -3,6 +3,7 @@ const Sector = preload("res://scripts/sector_data.gd")
 var origin := 0
 var destination := 1
 var cargo_loaded := false
+var interrupted := false
 const DOCK_POINT := Vector3(35,0,-123)
 const BEACON := Vector3(0,0,-300)
 const REWARD := 300
@@ -18,6 +19,7 @@ func setup(owner_game: Node3D) -> void:
 	origin = game.station_id
 	destination = 1-origin
 	cargo_loaded = false
+	interrupted = false
 	beacon = MeshInstance3D.new()
 	var ring := TorusMesh.new()
 	ring.inner_radius = 4.5
@@ -92,24 +94,74 @@ func step(delta := 0.0) -> void:
 			stage = "ВОЗВРАЩЕНИЕ"
 			game.clear_held_input()
 
+func nearby_station() -> int:
+	if game.destroyed or flight_locked() or game.planet.on_surface() or game.planet.in_neighbor():
+		return -1
+	var nearest := -1
+	var distance := Sector.CONTACT_RADIUS
+	for id in range(Sector.POSITIONS.size()):
+		var current: float = game.ship.position.distance_to(Sector.position(id))
+		if current <= distance:
+			distance = current
+			nearest = id
+	return nearest
+
+func can_station_dock(id: int) -> bool:
+	return id >= 0 and id < Sector.POSITIONS.size() and nearby_station() == id \
+		and game.ship.position.distance_to(Sector.position(id)) <= Sector.DOCK_RADIUS \
+		and game.velocity.length() <= Sector.DOCK_SPEED
+
+func arrival_station() -> int:
+	return destination if kind in ["delivery", "trade"] else origin
+
 func can_dock() -> bool:
-	return stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] and (kind!="delivery" or cargo_loaded) and not game.destroyed and game.ship.position.distance_to(nav_position()) <= 14.0 and game.velocity.length() <= 5.0
+	return stage in ["ВОЗВРАЩЕНИЕ", "ДОСТАВКА", "ПЕРЕЛЁТ"] \
+		and (kind != "delivery" or cargo_loaded) and can_station_dock(arrival_station())
 
 func dock() -> void:
-	if not can_dock():return
-	var arrival: Vector3 = nav_position()
-	if kind in ["delivery","trade"]:game.station_id = destination
+	if can_dock():
+		_finish_docking(arrival_station(), true)
+
+func interrupt_and_dock(id: int) -> void:
+	if can_station_dock(id):
+		_finish_docking(id, false)
+
+func _finish_docking(id: int, completed: bool) -> void:
+	var previous := {"stage":stage, "cargo":cargo_loaded, "interrupted":interrupted,
+		"station":game.station_id, "velocity":game.velocity, "throttle":game.throttle,
+		"position":game.ship.position, "shield":game.shield,
+		"credits":game.credits, "runs":game.training_runs}
+	game.station_id = id
 	cargo_loaded = false
 	stage = "ЗАВЕРШЕНО"
+	interrupted = not completed
 	game.velocity = Vector3.ZERO
 	game.throttle = 0
-	game.ship.position = arrival
+	game.ship.position = Sector.dock_point(id)
 	game.clear_held_input()
-	game.shield = 100.0+game.upgrades.shield*25.0
+	game.shield = 100.0 + game.upgrades.shield * 25.0
+	if completed:
+		game.credits += reward()
+		game.training_runs += 1
+	if not game._save_progress():
+		stage = previous.stage
+		cargo_loaded = previous.cargo
+		interrupted = previous.interrupted
+		game.station_id = previous.station
+		game.velocity = previous.velocity
+		game.throttle = previous.throttle
+		game.ship.position = previous.position
+		game.shield = previous.shield
+		game.credits = previous.credits
+		game.training_runs = previous.runs
+		return
+	beacon.visible = false
+	for target in game.enemies:
+		target.visible = false
+		var pilot = target.get_node_or_null("PilotAI")
+		if pilot != null:
+			pilot.enabled = false
 	game.visuals.update_flight(0)
-	game.credits += reward()
-	game.training_runs += 1
-	game._save_progress()
 
 func nav_position() -> Vector3:
 	if kind=="planet" and stage!="ВОЗВРАЩЕНИЕ":
@@ -136,7 +188,7 @@ func hint() -> String:
 		"ВЫЛЕТ":return "До маяка %d м · прибавьте тягу" % distance
 		"СКАНИРОВАНИЕ":return "Сканирование %.1f/3 с · до 35 м, скорость до 8 м/с" % scan_elapsed
 		"ВОЗВРАЩЕНИЕ", "ДОСТАВКА", "ПЕРЕЛЁТ":
-			if distance > 14:return "%s · до стыковки %d м" % [Sector.title(destination if kind in ["delivery","trade"] else origin),distance]
+			if not can_station_dock(arrival_station()) and game.ship.position.distance_to(Sector.position(arrival_station())) > Sector.DOCK_RADIUS:return "%s · до стыковки %d м" % [Sector.title(destination if kind in ["delivery","trade"] else origin),distance]
 			if game.velocity.length() > 5:return "Снизьте скорость до 5 м/с · тяга 0, стабилизация ВКЛ"
 			return "Стыковка разрешена · нажмите «СТЫКОВКА»"
 		_:return ""

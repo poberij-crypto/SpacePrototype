@@ -350,7 +350,7 @@ func _draw_portrait() -> void:
 		txt(Vector2(190,554),"Откройте «МЕНЮ»",18)
 
 func _build_mission_panel() -> void:
-	dock_button = button("СТЫКОВКА",Rect2(510,445,260,56),game.mission.dock,true)
+	dock_button = button("СТЫКОВКА",Rect2(510,445,260,56),game.request_station_dock,true)
 	dock_button.visible = false
 	mission_panel = PanelContainer.new()
 	mission_panel.size = Vector2(480,290)
@@ -432,8 +432,13 @@ func _update_mission_panel() -> void:
 	fire_button.visible = m.kind!="planet" or station or m.stage=="ПРОВАЛ"
 	controls["+"].disabled = locked
 	controls["−"].disabled = locked
-	dock_button.visible = m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] and not upgrades_panel.visible and not market_panel.visible
-	dock_button.disabled = not m.can_dock()
+	var contact: int = m.nearby_station()
+	dock_button.visible = (contact >= 0 or m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"]) and not upgrades_panel.visible and not market_panel.visible and not map_panel.visible
+	dock_button.disabled = not m.can_station_dock(contact)
+	dock_button.add_theme_font_size_override("font_size", 14 if dock_button.disabled else 18)
+	dock_button.text = "СТЫКОВКА" if contact < 0 else "СТЫКОВКА · %s" % Sector.title(contact)
+	if contact >= 0 and dock_button.disabled:
+		dock_button.text = "ПОДОЙДИТЕ ДО 40 м" if game.ship.position.distance_to(Sector.position(contact)) > Sector.DOCK_RADIUS else "СНИЗЬТЕ СКОРОСТЬ ДО 5 м/с"
 	mission_choices.visible = station and not pending
 	mission_button.disabled = station and game.selected_mission=="delivery" and game.cargo_used()+game.Trade.CONTRACT_SIZE>game.Trade.CAPACITY
 	mission_button.visible = not pending
@@ -452,7 +457,7 @@ func _update_mission_panel() -> void:
 		mission_title.text = "ВЫЛЕТ СОХРАНЁН"
 		mission_body.text = "Продолжите полёт с последнего сохранения.\nЭтап: %s\nБаланс: %d кредитов.\nНовое задание и услуги доступны после\nвозвращения или отмены вылета." % [str(game.pending_snapshot.get("stage","неизвестен")),game.credits]
 	elif station:
-		mission_title.text = "МИССИЯ ВЫПОЛНЕНА" if m.stage=="ЗАВЕРШЕНО" else "СТАНЦИЯ «%s»" % Sector.title(game.station_id)
+		mission_title.text = "ВЫЛЕТ ПРЕРВАН · СТАНЦИЯ" if m.interrupted else "МИССИЯ ВЫПОЛНЕНА" if m.stage=="ЗАВЕРШЕНО" else "СТАНЦИЯ «%s»" % Sector.title(game.station_id)
 		var task := "Учебный бой: уничтожить противника.\nНаграда: 300 кр. + боевая награда."
 		if game.selected_mission=="scout":task = "Разведка: сканировать маяк 3 секунды.\nДо 35 м, скорость до 8 м/с. Награда: 150 кр."
 		if game.selected_mission=="delivery":task = "Контейнер оборудования → «%s».\nНаграда: 220 кр. Нужны 2 свободные ед." % Sector.title(1-game.station_id)

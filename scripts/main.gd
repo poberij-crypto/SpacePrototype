@@ -12,6 +12,8 @@ var mining_suspended := false
 var mining_active_at := 0
 var trade_note := ""
 var station_id := 0
+var station_dock_dialog: ConfirmationDialog
+var requested_station := -1
 var store = preload("res://scripts/checkpoint_store.gd").new()
 var snapshots = preload("res://scripts/flight_snapshot.gd").new()
 var pending_snapshot: Dictionary = {}
@@ -147,9 +149,15 @@ func _build_hud() -> void:
 	upgrades_panel = flight_ui.upgrades_panel
 	upgrade_info = flight_ui.upgrade_info
 	stable_button = flight_ui.stable_button
+	station_dock_dialog = ConfirmationDialog.new()
+	station_dock_dialog.title = "Стыковка со станцией"
+	station_dock_dialog.ok_button_text = "Прервать и состыковаться"
+	station_dock_dialog.cancel_button_text = "Продолжить вылет"
+	station_dock_dialog.confirmed.connect(func(): mission.interrupt_and_dock(requested_station))
+	flight_ui.add_child(station_dock_dialog)
 
 func _input(event: InputEvent) -> void:
-	if mission.flight_locked() or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
+	if station_dock_dialog.visible or mission.flight_locked() or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
 	if event is InputEventScreenTouch:
 		if not event.pressed and event.index == fire_touch:
 			fire_touch = -1
@@ -192,7 +200,7 @@ func _process(_delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if mining_suspended:
 		return
-	if upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible or flight_ui.planet_panel.report_dialog.visible:return
+	if station_dock_dialog.visible or upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible or flight_ui.planet_panel.report_dialog.visible:return
 	mission.step(delta)
 	planet.step_survey(delta)
 	if planet.step(delta):
@@ -507,3 +515,16 @@ func start_neighbor_flight() -> void:
 		return
 	choose_mission("planet")
 	start_selected_mission(true)
+
+
+func request_station_dock() -> void:
+	var id: int = mission.nearby_station()
+	if not mission.can_station_dock(id):
+		return
+	clear_held_input()
+	if mission.can_dock():
+		mission.dock()
+	else:
+		requested_station = id
+		station_dock_dialog.dialog_text = "Прервать текущее задание без награды и состыковаться со станцией «%s»?" % Sector.title(id)
+		station_dock_dialog.popup_centered()

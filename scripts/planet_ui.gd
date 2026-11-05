@@ -81,7 +81,7 @@ func _process(_delta: float) -> void:
 	orbit.disabled=not game.planet.can_exit()
 	up.visible=active and stage=="ПОВЕРХНОСТЬ" and not blocked
 	down.visible=up.visible
-	action_button.visible=active and stage in [game.planet.OUTBOUND, game.planet.INBOUND, "К ПЛАНЕТЕ","ПОВЕРХНОСТЬ","НА ПОВЕРХНОСТИ"] and not blocked
+	action_button.visible=active and not game.flight_ui.dock_button.visible and stage in [game.planet.OUTBOUND, game.planet.INBOUND, "К ПЛАНЕТЕ","ПОВЕРХНОСТЬ","НА ПОВЕРХНОСТИ"] and not blocked
 	if stage in [game.planet.OUTBOUND, game.planet.INBOUND]:
 		action_button.text = "ПРЫЖОК"
 		action_button.disabled = not game.planet.can_jump()
