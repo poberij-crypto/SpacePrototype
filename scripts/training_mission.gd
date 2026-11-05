@@ -170,6 +170,7 @@ func nav_position() -> Vector3:
 	return Sector.dock_point(origin) if stage=="ВОЗВРАЩЕНИЕ" else BEACON
 
 func objective() -> String:
+	if game.has_orbital_target():return "ИССЛЕДУЙТЕ %s" % game.flight_nav_title()
 	if kind=="planet" and stage not in ["ИНСТРУКТАЖ","ЗАВЕРШЕНО","ПРОВАЛ","ВОЗВРАЩЕНИЕ"]:return game.planet.region_title()
 	match stage:
 		"ИНСТРУКТАЖ":return "МЕНЮ СТАНЦИИ"

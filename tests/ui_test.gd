@@ -16,20 +16,20 @@ func run() -> void:
 	assert(game.flight_ui != null, "new flight HUD must exist")
 	var ui = game.flight_ui
 	assert(ui.fire_button.get_rect().size.x >= 120, "fire touch area")
-	assert(ui.to_design(ui.from_design(Vector2(150, 560))).distance_to(Vector2(150, 560)) < 0.1, "scaled coordinates round trip")
+	assert(ui.to_design(ui.from_design(ui.steering_rect().get_center())).distance_to(ui.steering_rect().get_center()) < 0.1, "scaled coordinates round trip")
 	var down := InputEventScreenTouch.new()
 	down.index = 1
-	down.position = ui.from_design(Vector2(150, 560))
+	down.position = ui.from_design(ui.steering_rect().get_center())
 	down.pressed = true
 	game._input(down)
 	var drag := InputEventScreenDrag.new()
 	drag.index = 1
-	drag.position = ui.from_design(Vector2(215, 560))
+	drag.position = ui.from_design(ui.steering_rect().get_center()+Vector2(65,0))
 	game._input(drag)
 	assert(game.turn_input.x > 0.9, "joystick drag mapped")
 	var second := InputEventScreenTouch.new()
 	second.index = 2
-	second.position = ui.from_design(Vector2(1150, 560))
+	second.position = ui.from_design(ui.fire_button.get_rect().get_center())
 	second.pressed = true
 	game._input(second)
 	assert(game.steer_touch == 1, "second touch must not steal steering")

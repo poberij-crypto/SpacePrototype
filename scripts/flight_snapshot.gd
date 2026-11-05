@@ -19,7 +19,7 @@ func capture(game: Node3D) -> Dictionary:
 		if pilot != null:
 			data["ai"] = {"state":pilot.state,"time":pilot.state_time,"cooldown":pilot.cooldown,"waypoint":vec(pilot.waypoint),"passes":pilot.passes,"enabled":pilot.enabled}
 		targets.append(data)
-	return {"planet":game.planet.capture() if game.planet!=null and game.mission.kind=="planet" else {},"version":4,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
+	return {"orbital_target":game.orbital_target if game.has_orbital_target() else -1,"planet":game.planet.capture() if game.planet!=null and game.mission.kind=="planet" else {},"version":4,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
 
 func _number(v, low: float, high: float) -> bool:
 	return typeof(v) in [TYPE_INT,TYPE_FLOAT] and is_finite(float(v)) and float(v)>=low and float(v)<=high
@@ -34,6 +34,9 @@ func _rotation(v) -> bool:
 	return length>.5 and length<1.5
 
 func valid(s: Dictionary) -> bool:
+	var orbital = s.get("orbital_target", -1)
+	if not _number(orbital, -1, 2) or float(int(orbital)) != float(orbital):return false
+	if orbital >= 0 and (s.get("kind") != "planet" or s.get("stage") != "К ПЛАНЕТЕ"):return false
 	if s.get("version") != 1 and s.get("version") != 2 and s.get("version") != 3 and s.get("version") != 4:return false
 	if s.get("stage") not in STAGES+Planet.STAGES or s.get("kind") not in ["combat","scout","delivery","trade","planet"]:return false
 	if s.kind=="planet":
@@ -75,6 +78,7 @@ func restore(game: Node3D, s: Dictionary) -> bool:
 	game.mission.cargo_loaded = bool(s.get("cargo",false))
 	game.station_id = game.mission.origin
 	game.selected_mission = s.kind
+	game.orbital_target = int(s.get("orbital_target", -1))
 	game.mission.kind = s.kind
 	game.mission.stage = s.stage
 	game.mission.scan_elapsed = s.scan

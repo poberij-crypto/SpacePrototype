@@ -36,3 +36,39 @@ static func generate_system(galaxy_seed: int, index: int) -> Dictionary:
 		"ground_color": GROUND_COLORS[planet_index],
 		"sky_color": SKY_COLORS[planet_index],
 	}
+
+# Orbital bodies use a separate random stream so generation v1 terrain stays stable.
+static func orbital_system(remote: bool) -> Dictionary:
+	var district := neighbor()
+	var center := Vector3(0, 0, -1000)
+	var entry: Vector3 = district.entry if remote else Vector3(100, 20, -270)
+	var radius: float = district.radius if remote else 70.0
+	var primary_position := entry + Vector3(20, -25, -radius - 45) if remote else Vector3(170, -40, -360)
+	var primary := {
+		"id": "primary", "name": district.planet_name if remote else "Астра",
+		"position": primary_position, "approach": entry, "radius": radius,
+		"color": district.ground_color if remote else Color.WHITE,
+		"kind": "terrestrial", "landable": true,
+	}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = START_SEED + (98317 if remote else 317)
+	var planets: Array[Dictionary] = [primary]
+	for index in range(2):
+		var angle := (4.2 if index == 0 else 1.2) + rng.randf_range(-.12, .12)
+		var orbit_radius := 900.0 if index == 0 else 1150.0
+		var position := center + Vector3(sin(angle) * orbit_radius, 36 if index == 0 else -30, cos(angle) * orbit_radius)
+		var planet_radius := rng.randf_range(36, 46) if index == 0 else rng.randf_range(84, 100)
+		var outward := (position - center).normalized()
+		planets.append({
+			"id": "planet-%d" % (index + 2),
+			"name": (["Оникс", "Орион"] if remote else ["Рубин", "Крона"])[index],
+			"position": position, "approach": position + outward * (planet_radius + 50),
+			"radius": planet_radius, "color": Color("b38a75") if index == 0 else Color("d6bd8b"),
+			"kind": "rocky" if index == 0 else "gas", "landable": false,
+		})
+	return {
+		"name": district.system_name if remote else "Гелиос",
+		"star": {"name": district.system_name if remote else "Гелиос", "position": center,
+			"radius": 86.0, "color": Color("ffb46b") if remote else Color("ffde98")},
+		"planets": planets,
+	}

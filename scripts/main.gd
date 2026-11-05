@@ -8,6 +8,9 @@ const Mining = preload("res://scripts/mining_state.gd")
 const World = preload("res://scripts/world_generator.gd")
 var mining = Mining.new()
 var neighbor_mining = Mining.new()
+var home_orbits: Dictionary = World.orbital_system(false)
+var neighbor_orbits: Dictionary = World.orbital_system(true)
+var orbital_target := -1
 var mining_suspended := false
 var mining_active_at := 0
 var trade_note := ""
@@ -108,12 +111,12 @@ func _build_world() -> void:
 	ship.add_child(external_camera)
 	external_camera.position = Vector3(0,3.2,11)
 	external_camera.rotation_degrees.x = -10
-	external_camera.far = 1500
+	external_camera.far = 5000
 	external_camera.current = true
 	cockpit_camera = Camera3D.new()
 	ship.add_child(cockpit_camera)
 	cockpit_camera.position = Vector3(0,.65,-1.3)
-	cockpit_camera.far = 1500
+	cockpit_camera.far = 5000
 	visuals = preload("res://scripts/visuals.gd").new()
 	add_child(visuals)
 	visuals.setup(self)
@@ -227,6 +230,8 @@ func _physics_process(delta: float) -> void:
 		velocity = velocity.limit_length(65.0 + upgrades.engine * 5.0)
 	ship.position += velocity * delta
 	planet.constrain_motion(delta)
+	constrain_orbit()
+	visuals.update_sun()
 	visuals.update_flight(throttle)
 	fire_timer -= delta
 	if firing and fire_timer <= 0:
@@ -386,6 +391,7 @@ func start_selected_mission(to_neighbor := false) -> void:
 		mission.scan_elapsed = 0
 		mission.beacon.queue_free()
 		mission.setup(self)
+	orbital_target = -1
 	mission.kind = selected_mission
 	planet.configure_route(to_neighbor and selected_mission == "planet")
 	mission.launch()
@@ -528,3 +534,65 @@ func request_station_dock() -> void:
 		requested_station = id
 		station_dock_dialog.dialog_text = "Прервать текущее задание без награды и состыковаться со станцией «%s»?" % Sector.title(id)
 		station_dock_dialog.popup_centered()
+
+
+func orbit_system(remote = null) -> Dictionary:
+	var in_remote: bool = planet != null and planet.in_neighbor() if remote == null else bool(remote)
+	return neighbor_orbits if in_remote else home_orbits
+
+func can_select_orbit() -> bool:
+	if destroyed or not pending_snapshot.is_empty() or planet.on_surface():
+		return false
+	return can_trade() or (mission.kind == "planet" and mission.stage == "К ПЛАНЕТЕ")
+
+func select_orbital_target(index: int) -> bool:
+	if not can_select_orbit() or index < 0 or index >= orbit_system().planets.size():
+		return false
+	var launching := can_trade()
+	if launching:
+		start_planet_flight()
+	var previous := orbital_target
+	orbital_target = -1 if index == 0 else index
+	if not _save_progress():
+		orbital_target = previous
+		return false
+	clear_held_input()
+	if launching:
+		ship.look_at(flight_nav_position())
+	return true
+
+func has_orbital_target() -> bool:
+	return orbital_target >= 0 and orbital_target < orbit_system().planets.size() \
+		and mission.kind == "planet" and mission.stage == "К ПЛАНЕТЕ" and not planet.on_surface()
+
+func flight_nav_position() -> Vector3:
+	if has_orbital_target():
+		return orbit_system().planets[orbital_target].approach
+	return planet.mining_target() if planet.on_surface() and mission.stage == "ПОВЕРХНОСТЬ" else mission.nav_position()
+
+func flight_nav_title() -> String:
+	if has_orbital_target():
+		return orbit_system().planets[orbital_target].name
+	if planet.on_surface():
+		return "ПЛОЩАДКА" if planet.mine().surveyed else "СИГНАЛ РУДЫ"
+	if mission.stage == "К ПЛАНЕТЕ":
+		return "ВХОД В АТМОСФЕРУ"
+	if mission.stage in [planet.OUTBOUND, planet.INBOUND]:
+		return "ПРЫЖКОВЫЙ МАЯК"
+	if mission.stage in ["ВОЗВРАЩЕНИЕ", "ДОСТАВКА", "ПЕРЕЛЁТ"]:
+		return Sector.title(mission.arrival_station())
+	return "МАЯК"
+
+func constrain_orbit() -> void:
+	if planet.on_surface() or mission.flight_locked():
+		return
+	var data: Dictionary = orbit_system()
+	var bodies: Array = [data.star] + data.planets
+	for body in bodies:
+		var relative: Vector3 = ship.position - body.position
+		var limit: float = body.radius + 12.0
+		if relative.length_squared() < limit * limit:
+			var outward := relative.normalized() if relative.length_squared() > .01 else Vector3.FORWARD
+			ship.position = body.position + outward * limit
+			velocity = Vector3.ZERO
+			throttle = 0.0

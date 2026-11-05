@@ -14,7 +14,9 @@ var report_dialog: AcceptDialog
 func setup(owner_game: Node3D) -> void:
 	game=owner_game;mouse_filter=Control.MOUSE_FILTER_IGNORE
 	launch=_button("ПЛАНЕТА · АСТРА",game.start_planet_flight)
-	neighbor_launch=_button("СИСТЕМА «%s»" % game.planet.generated.system_name, game.start_neighbor_flight)
+	neighbor_launch=_button(game.planet.generated.system_name, game.start_neighbor_flight)
+	launch.add_theme_font_size_override("font_size",12)
+	neighbor_launch.add_theme_font_size_override("font_size",14)
 	action_button=_button("СПУСК",game.planet.action)
 	orbit=_button("ВЫЙТИ НА ОРБИТУ",game.planet.exit_orbit)
 	up=_button("ПОДЪЁМ ↑",func():pass)
@@ -63,14 +65,18 @@ func _process(_delta: float) -> void:
 	if game==null:return
 	size=game.flight_ui.design_size
 	var portrait: bool=game.flight_ui.portrait
-	rect(launch,Rect2(360,296,336,48) if portrait else Rect2(990,204,264,48))
-	rect(neighbor_launch,Rect2(24,296,320,48) if portrait else Rect2(24,278,264,48))
-	rect(orbit,Rect2(360,296,336,48) if portrait else Rect2(990,204,264,48))
-	rect(action_button,Rect2(230,730,260,56) if portrait else Rect2(510,445,260,56))
-	rect(up,Rect2(500,1040,196,64) if portrait else Rect2(1080,478,174,64))
-	rect(down,Rect2(500,1116,196,64) if portrait else Rect2(1080,550,174,64))
-	rect(mine_action, Rect2(230,658,260,56) if portrait else Rect2(510,510,260,52))
-	rect(report_button, Rect2(364,238,190,44) if portrait else Rect2(24,224,190,44))
+	var ui = game.flight_ui
+	var routes: Rect2 = ui.shortcut_rect(3)
+	var route_width := (routes.size.x-12)*.5
+	rect(launch,Rect2(routes.position,Vector2(route_width,48)))
+	rect(neighbor_launch,Rect2(routes.position+Vector2(route_width+12,0),Vector2(route_width,48)))
+	rect(orbit,ui.shortcut_rect(3))
+	rect(action_button,Rect2(ui.context_position(90 if portrait else 85),Vector2(260,56)))
+	var fire: Rect2 = ui.fire_button.get_rect()
+	rect(up,Rect2(fire.position,Vector2(fire.size.x,64)))
+	rect(down,Rect2(fire.position+Vector2(0,76),Vector2(fire.size.x,64)))
+	rect(mine_action,Rect2(ui.context_position(18 if portrait else 150),Vector2(260,52)))
+	rect(report_button,ui.shortcut_rect(4))
 	var blocked:=modal()
 	report_button.visible = (game.mining.has_report() or game.neighbor_mining.has_report()) and not blocked
 	var stage: String=game.mission.stage
@@ -81,7 +87,7 @@ func _process(_delta: float) -> void:
 	orbit.disabled=not game.planet.can_exit()
 	up.visible=active and stage=="ПОВЕРХНОСТЬ" and not blocked
 	down.visible=up.visible
-	action_button.visible=active and not game.flight_ui.dock_button.visible and stage in [game.planet.OUTBOUND, game.planet.INBOUND, "К ПЛАНЕТЕ","ПОВЕРХНОСТЬ","НА ПОВЕРХНОСТИ"] and not blocked
+	action_button.visible=active and not game.flight_ui.dock_button.visible and stage in [game.planet.OUTBOUND, game.planet.INBOUND, "К ПЛАНЕТЕ","ПОВЕРХНОСТЬ","НА ПОВЕРХНОСТИ"] and not blocked and not game.has_orbital_target()
 	if stage in [game.planet.OUTBOUND, game.planet.INBOUND]:
 		action_button.text = "ПРЫЖОК"
 		action_button.disabled = not game.planet.can_jump()
@@ -134,39 +140,60 @@ func _draw() -> void:
 		text_at(center+Vector2(0,36),"%s · %d%%" % [game.planet.region_title(), mini(100,int(game.planet.elapsed/4.0*100))],18,Color("64e3ff"))
 		return
 	if stage not in [game.planet.OUTBOUND, game.planet.INBOUND, "К ПЛАНЕТЕ","ПОВЕРХНОСТЬ","ПОСАДКА","НА ПОВЕРХНОСТИ","ВЗЛЁТ"]:return
-	var r:=Rect2(24,354,672,90) if portrait else Rect2(310,108,630,74)
-	draw_style_box(game.flight_ui.style(Color(.025,.07,.11,.92),Color("285366")),r)
-	var label: String
-	var hint: String
+	var r: Rect2 = game.flight_ui.planet_status_rect()
+	var lines: Array[String] = []
 	if stage in [game.planet.OUTBOUND, game.planet.INBOUND]:
 		var destination: String = game.planet.generated.system_name if stage == game.planet.OUTBOUND else "СТАРТОВАЯ СИСТЕМА"
-		label = "ПРЫЖОК → %s · %d м" % [destination, int(game.ship.position.distance_to(game.planet.nav_point()))]
-		hint = "Подойдите до 35 м, скорость до 25 м/с · затем «ПРЫЖОК»"
-	elif stage=="К ПЛАНЕТЕ":
-		label="%s · ВХОД %d м" % [game.planet.region_title(), int(game.ship.position.distance_to(game.planet.entry_point()))]
-		hint="Подойдите до 35 м, скорость до 25 м/с · затем «СПУСК»"
+		lines = ["ПРЫЖОК → %s" % destination,
+			"До маяка: %d м" % int(game.ship.position.distance_to(game.planet.nav_point())),
+			"До 35 м · скорость до 25 м/с", "Действие: ПРЫЖОК"]
+	elif stage == "К ПЛАНЕТЕ":
+		lines = [game.flight_nav_title(),
+			"Расстояние: %d м" % int(game.ship.position.distance_to(game.flight_nav_position())),
+			"До 35 м · скорость до 25 м/с", "Действие: НАЧАТЬ СПУСК"]
+		if game.has_orbital_target():
+			var primary: String = game.orbit_system().planets[0].name
+			lines[2] = "Посадка: %s" % primary
+			lines[3] = "Выберите планету на карте"
 	else:
-		label="%s · ВЫСОТА %d м · %s" % [game.planet.region_title(),int(game.planet.altitude()),stage]
-		if stage=="НА ПОВЕРХНОСТИ":hint="Посадка выполнена · нажмите «ВЗЛЁТ» для продолжения"
-		elif stage in ["ПОСАДКА","ВЗЛЁТ"]:hint="Посадочная автоматика · управление временно передано"
-		else:hint="Посадка: до 25 м, до 8 м/с · орбита: от 100 м"
-	text_at(r.position+Vector2(18,27),label,16,Color("64e3ff"))
-	text_at(r.position+Vector2(18,53),hint,15)
-
+		lines = [game.planet.region_title(),
+			"ВЫСОТА %d м · %s" % [int(game.planet.altitude()),stage],
+			"Посадка: до 25 м · до 8 м/с", "Выход на орбиту: от 100 м"]
+		if stage == "НА ПОВЕРХНОСТИ":
+			lines[2] = "Посадка выполнена"
+			lines[3] = "Действие: ВЗЛЁТ"
+		elif stage in ["ПОСАДКА","ВЗЛЁТ"]:
+			lines[2] = "Посадочная автоматика"
+			lines[3] = "Дождитесь завершения манёвра"
+	_draw_status_lines(r,lines,Color("64e3ff"))
 	if stage in ["ПОВЕРХНОСТЬ", "НА ПОВЕРХНОСТИ"]:
-		_draw_mining_status(portrait)
+		_draw_mining_status()
 
-func _draw_mining_status(portrait: bool) -> void:
-	var m = game.planet.mine()
-	var r := Rect2(24,454,672,64) if portrait else Rect2(310,190,630,61)
+func _draw_status_lines(r: Rect2, lines: Array[String], title_color: Color) -> void:
 	draw_style_box(game.flight_ui.style(Color(.025,.07,.11,.92),Color("285366")),r)
-	var title := "СИГНАЛ РУДЫ · %d м" % roundi(game.planet.mining_distance(game.planet.signal_point()))
-	var detail := "Сканирование · до 150 м, высота до 100 м, скорость до 20 м/с"
+	var font := get_theme_default_font()
+	for i in range(mini(lines.size(),4)):
+		var font_size := 14 if i == 0 else 13
+		var line := lines[i]
+		# Long generated site/body names must remain inside their corner panel.
+		if font.get_string_size(line,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size).x > r.size.x-28:
+			while line.length() > 0 and font.get_string_size(line+"…",HORIZONTAL_ALIGNMENT_LEFT,-1,font_size).x > r.size.x-28:
+				line = line.left(line.length()-1)
+			line += "…"
+		text_at(r.position+Vector2(14,20+i*20),line,font_size,title_color if i == 0 else Color("e9f5fc"))
+
+func _draw_mining_status() -> void:
+	var m = game.planet.mine()
+	var lines: Array[String] = [
+		"СИГНАЛ РУДЫ · %d м" % roundi(game.planet.mining_distance(game.planet.signal_point())),
+		"Скан: до 150 м · высота до 100 м",
+		"Скорость: до 20 м/с", "Сканируйте участок с воздуха"]
 	if m.surveyed:
-		title = "%s · ЗАПАС %d ЕД. · НИЗКИЙ РИСК" % [game.planet.site_title(), m.reserve]
-		detail = "Сядьте у маркера · доступ к комплексу в пределах 40 м"
+		lines = [game.planet.site_title(),
+			"ЗАПАС %d ЕД. · НИЗКИЙ РИСК" % m.reserve,
+			"Посадка у маркера", "Комплекс доступен до 40 м"]
 	if m.installed:
-		title = "%s · СКЛАД %d/%d · ЗАПАС %d ЕД." % [game.planet.site_title(), m.stock, m.CAPACITY, m.reserve]
-		detail = "%s · отсек %d/%d" % [m.production_status(), game.cargo_used(), game.Trade.CAPACITY]
-	text_at(r.position + Vector2(18,24), title, 16, Color("ffc46a"))
-	text_at(r.position + Vector2(18,48), detail, 15)
+		lines = [game.planet.site_title(),
+			"СКЛАД %d/%d · ЗАПАС %d" % [m.stock,m.CAPACITY,m.reserve],
+			m.production_status(), "ГРУЗ %d/%d" % [game.cargo_used(),game.Trade.CAPACITY]]
+	_draw_status_lines(game.flight_ui.mining_status_rect(),lines,Color("ffc46a"))

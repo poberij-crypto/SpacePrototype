@@ -97,6 +97,7 @@ func jump() -> void:
 	if not can_jump():
 		return
 	var outbound: bool = game.mission.stage == OUTBOUND
+	game.orbital_target = -1
 	game.mission.stage = "К ПЛАНЕТЕ" if outbound else "ВОЗВРАЩЕНИЕ"
 	game.ship.position = World.ARRIVAL_GATE if outbound else World.HOME_GATE
 	game.ship.look_at(game.mission.nav_position())
@@ -106,7 +107,7 @@ func jump() -> void:
 	sync_space()
 	game._save_progress()
 
-func can_enter() -> bool:return active() and game.mission.stage=="К ПЛАНЕТЕ" and not game.destroyed and game.ship.position.distance_to(entry_point())<=35 and game.velocity.length()<=25
+func can_enter() -> bool:return not game.has_orbital_target() and active() and game.mission.stage=="К ПЛАНЕТЕ" and not game.destroyed and game.ship.position.distance_to(entry_point())<=35 and game.velocity.length()<=25
 func can_land() -> bool:
 	return active() and game.mission.stage=="ПОВЕРХНОСТЬ" and not game.destroyed and altitude()<=25 and game.velocity.length()<=8 and region!=null and region.landing_clear(game.ship.position.x,game.ship.position.z)
 func can_exit() -> bool:return active() and game.mission.stage=="ПОВЕРХНОСТЬ" and not game.destroyed and altitude()>=100
@@ -210,7 +211,10 @@ func _set_surface(value: bool) -> void:
 			region.show_mining_site(mine().surveyed, mine().installed)
 	sync_space()
 	game.visuals.world_environment.environment=region.environment if value else game.visuals.space_environment
-	game.external_camera.far=2200 if value else 1500
+	game.external_camera.far=2200 if value else 5000
+	game.cockpit_camera.far=2200 if value else 5000
+	if value:
+		game.visuals.sun_light.rotation_degrees = Vector3(-35,-30,0)
 	gear.visible=value and not game.cockpit
 	for enemy in game.enemies:enemy.visible=false
 

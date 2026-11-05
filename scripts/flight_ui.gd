@@ -40,6 +40,8 @@ var upgrades_panel: PanelContainer
 var upgrade_info: Label
 var factor := 1.0
 var origin := Vector2.ZERO
+# The full design surface follows the viewport; only touch target scale uses the baseline.
+var safe_bounds := Rect2(24, 24, 1232, 672)
 
 func setup(owner_game: Node3D) -> void:
 	game = owner_game
@@ -61,7 +63,9 @@ func setup(owner_game: Node3D) -> void:
 	help_label.position = Vector2(390, 505)
 	help_label.size = Vector2(500, 36)
 	help_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	help_label.add_theme_font_size_override("font_size", 17)
+	help_label.add_theme_font_size_override("font_size", 15)
+	help_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	help_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	help_label.add_theme_color_override("font_color", CYAN)
 	help_label.text = "Наведите нос корабля на оранжевую цель"
 	content.add_child(help_label)
@@ -114,12 +118,20 @@ func style(bg: Color, border: Color) -> StyleBoxFlat:
 	s.content_margin_bottom = 16
 	return s
 
+func button_style(bg: Color, border: Color) -> StyleBoxFlat:
+	var result := style(bg,border)
+	result.content_margin_left = 12
+	result.content_margin_right = 12
+	result.content_margin_top = 8
+	result.content_margin_bottom = 8
+	return result
+
 func decorate(b: Button, primary := false) -> void:
-	b.add_theme_stylebox_override("normal", style(Color("163845") if primary else Color(0.025, 0.07, 0.11, 0.92), CYAN if primary else Color("285366")))
-	b.add_theme_stylebox_override("pressed", style(Color("20677b"), CYAN))
-	b.add_theme_stylebox_override("hover", style(Color("17394b"), CYAN))
+	b.add_theme_stylebox_override("normal", button_style(Color("163845") if primary else Color(0.025, 0.07, 0.11, 0.92), CYAN if primary else Color("285366")))
+	b.add_theme_stylebox_override("pressed", button_style(Color("20677b"), CYAN))
+	b.add_theme_stylebox_override("hover", button_style(Color("17394b"), CYAN))
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	b.add_theme_stylebox_override("disabled",style(Color(.025,.07,.11,.80),Color("203847")))
+	b.add_theme_stylebox_override("disabled",button_style(Color(.025,.07,.11,.80),Color("203847")))
 	b.add_theme_color_override("font_disabled_color",Color("69818c"))
 	b.add_theme_color_override("font_color", WHITE)
 	b.add_theme_font_size_override("font_size", 18)
@@ -138,35 +150,94 @@ func button(text: String, rect: Rect2, action: Callable, primary := false) -> Bu
 
 func _layout() -> void:
 	portrait = size.y > size.x
-	design_size = Vector2(720,1280) if portrait else Vector2(1280,720)
+	var baseline := Vector2(720,1280) if portrait else Vector2(1280,720)
 	if size != previous_size:
 		game.clear_held_input()
 		previous_size = size
-	factor = maxf(.1,minf(size.x/design_size.x,size.y/design_size.y))
-	origin = (size-design_size*factor)*.5
+	factor = maxf(.1,minf(size.x/baseline.x,size.y/baseline.y))
+	design_size = size / factor
+	safe_bounds = _safe_design_bounds()
+	# Keep the complete corner layout usable when a display cutout consumes an edge.
+	var safe_fit := minf(1.0,minf(safe_bounds.size.x/(baseline.x-48),safe_bounds.size.y/(baseline.y-48)))
+	factor *= maxf(.1,safe_fit)
+	design_size = size / factor
+	origin = Vector2.ZERO
 	content.scale = Vector2.ONE*factor
 	content.position = origin
-	var rects: Array = [Rect2(990,24,264,48),Rect2(990,84,126,48),Rect2(1128,84,126,48),Rect2(960,458,92,76),Rect2(960,548,92,76),Rect2(1080,478,174,146),Rect2(920,642,334,52)]
-	if portrait:
-		rects = [Rect2(360,24,336,48),Rect2(344,178,166,48),Rect2(530,178,166,48),Rect2(360,1020,110,76),Rect2(360,1110,110,76),Rect2(500,1040,196,144),Rect2(288,1208,408,52)]
+	content.size = design_size
+	safe_bounds = _safe_design_bounds()
+	var right := safe_bounds.end.x
+	var bottom := safe_bounds.end.y
+	var fire_width := 196.0 if portrait else 174.0
+	var throttle_width := 110.0 if portrait else 92.0
+	var stable_width := 408.0 if portrait else 334.0
+	var throttle_x := right-(336 if portrait else 294)
+	var rects: Array[Rect2] = [
+		shortcut_rect(0),shortcut_rect(1),shortcut_rect(1),
+		Rect2(throttle_x,bottom-236,throttle_width,76),
+		Rect2(throttle_x,bottom-146,throttle_width,76),
+		Rect2(right-fire_width,bottom-216,fire_width,144 if portrait else 146),
+		Rect2(right-stable_width,bottom-52,stable_width,52),
+	]
+	var row: Rect2 = shortcut_rect(1)
+	rects[1] = Rect2(row.position,Vector2((row.size.x-12)*.5,48))
+	rects[2] = Rect2(row.position+Vector2((row.size.x+12)*.5,0),Vector2((row.size.x-12)*.5,48))
 	var buttons := [camera_button,controls["МОДУЛИ"],controls["МЕНЮ"],controls["+"],controls["−"],fire_button,stable_button]
 	for i in range(buttons.size()):
 		buttons[i].position = rects[i].position
 		buttons[i].size = rects[i].size
-	help_label.position = Vector2(24,962) if portrait else Vector2(390,505)
-	help_label.size.x = 672 if portrait else 500
-	upgrades_panel.position = Vector2(140,380) if portrait else Vector2(420,154)
-	mission_panel.position = Vector2((design_size.x-480)*.5,maxf(105,(design_size.y-mission_panel.size.y)*.5))
-	dock_button.position = Vector2(230,730) if portrait else Vector2(510,445)
+	help_label.max_lines_visible = 1 if portrait else 2
+	help_label.size = Vector2(minf(672 if portrait else 440, safe_bounds.size.x),24 if portrait else 36)
+	help_label.position = Vector2((design_size.x-help_label.size.x)*.5,design_size.y*.5+(150 if portrait else 225))
+	if not portrait:
+		var left_clear := safe_bounds.position.x+400
+		var right_clear := safe_bounds.end.x-310
+		help_label.size.x = minf(help_label.size.x,right_clear-left_clear)
+		help_label.position.x = clampf(help_label.position.x,left_clear,right_clear-help_label.size.x)
+	upgrades_panel.position = (design_size-upgrades_panel.size)*.5
+	mission_panel.position = Vector2((design_size.x-480)*.5,maxf(safe_bounds.position.y,(design_size.y-mission_panel.size.y)*.5))
+	dock_button.position = context_position(90 if portrait else 85)
 	market_panel.size = design_size
-	market_button.position = Vector2(194,238) if portrait else Vector2(990,144)
-	market_button.size = Vector2(150,44) if portrait else Vector2(126,44)
 	map_panel.size = design_size
-	map_button.position = Vector2(24,238) if portrait else Vector2(1128,144)
-	map_button.size = Vector2(150,44) if portrait else Vector2(126,44)
+	row = shortcut_rect(2)
+	market_button.position = row.position
+	market_button.size = Vector2((row.size.x-12)*.5,44)
+	map_button.position = row.position+Vector2((row.size.x+12)*.5,0)
+	map_button.size = market_button.size
+
+func _safe_design_bounds() -> Rect2:
+	var insets := Vector4(24,24,24,24)
+	if OS.get_name() == "Android":
+		var screen := Vector2(DisplayServer.screen_get_size())
+		var safe := DisplayServer.get_display_safe_area()
+		if screen.x > 0 and screen.y > 0 and safe.has_area():
+			var ratio := design_size / screen
+			insets.x = maxf(insets.x,safe.position.x*ratio.x)
+			insets.y = maxf(insets.y,safe.position.y*ratio.y)
+			insets.z = maxf(insets.z,(screen.x-safe.end.x)*ratio.x)
+			insets.w = maxf(insets.w,(screen.y-safe.end.y)*ratio.y)
+	return Rect2(Vector2(insets.x,insets.y),design_size-Vector2(insets.x+insets.z,insets.y+insets.w))
+
+func shortcut_rect(row: int) -> Rect2:
+	var width := 336.0 if portrait else 264.0
+	return Rect2(safe_bounds.end.x-width,safe_bounds.position.y+row*60, width,48)
+
+func context_position(y_offset: float) -> Vector2:
+	return Vector2(design_size.x*.5-130,design_size.y*.5+y_offset)
+
+func speed_rect() -> Rect2:
+	return Rect2(safe_bounds.end-Vector2(416,432),Vector2(416,124)) if portrait else Rect2(safe_bounds.end-Vector2(334,380),Vector2(334,124))
 
 func steering_rect() -> Rect2:
-	return Rect2(20,1000,270,260) if portrait else Rect2(20,420,260,280)
+	return Rect2(Vector2(safe_bounds.position.x,safe_bounds.end.y-276),Vector2(260,276))
+
+func planet_status_rect() -> Rect2:
+	return Rect2(safe_bounds.position+Vector2(0,354 if portrait else 202),Vector2(300,86))
+
+func mining_status_rect() -> Rect2:
+	var r := planet_status_rect()
+	r.position.y += 94
+	return r
 
 func to_design(point: Vector2) -> Vector2:
 	return (point - origin) / factor
@@ -201,6 +272,8 @@ func _draw() -> void:
 	if portrait:
 		_draw_portrait()
 		return
+	draw_set_transform((safe_bounds.position-Vector2(24,24))*factor,0,Vector2.ONE*factor)
+	# Keep hull and systems together at the upper left.
 	panel(Rect2(24, 24, 260, 48))
 	draw_circle(Vector2(44, 48), 4, CYAN)
 	txt(Vector2(58, 55), "СКИФ / %s" % (game.planet.generated.planet_name if game.planet.in_neighbor() else "АСТРА") if game.planet.on_surface() else ("СКИФ / %s" % game.planet.generated.system_name if game.planet.in_neighbor() else "СКИФ / УЧЕБНЫЙ ПОЛЁТ"), 17)
@@ -213,11 +286,13 @@ func _draw() -> void:
 	txt(Vector2(192, 159), "%d/%d" % [int(game.shield), int(max_shield)], 16)
 	bar(Vector2(42, 172), 224, game.shield / max_shield, Color("8fa6ff"))
 	txt(Vector2(42, 197), "СИСТЕМЫ · " + ("ОТКАЗ" if game.destroyed else "НОРМА"), 12, RED if game.destroyed else DIM)
-	panel(Rect2(440, 24, 400, 70))
-	txt(Vector2(460, 49), game.mission.objective(), 13, DIM)
+	draw_set_transform(safe_bounds.position*factor,0,Vector2.ONE*factor)
+	panel(Rect2(276,0,400,94))
+	txt(Vector2(294,25), game.mission.objective(),13,DIM)
 	var stage_title: String = "ОБРАТНЫЙ ПРЫЖОК" if game.mission.stage == game.planet.INBOUND else game.mission.stage
-	txt(Vector2(460, 77), "ЭТАП: " + stage_title, 16)
-	txt(Vector2(700, 77), "%05d кр." % game.credits, 17, AMBER)
+	txt(Vector2(294,53), "ЭТАП: " + stage_title,16)
+	txt(Vector2(294,79), "%05d кр." % game.credits,17,AMBER)
+	draw_set_transform(origin,0,Vector2.ONE*factor)
 	# Aim indicator follows the actual forward line of the ship.
 	var camera: Camera3D = game.cockpit_camera if game.cockpit else game.external_camera
 	var aim_world: Vector3 = game.ship.global_position - game.ship.global_basis.z * 100.0
@@ -230,27 +305,20 @@ func _draw() -> void:
 	_targets(camera)
 	_draw_navigation(camera)
 	# Joystick and instructions.
-	var center := Vector2(154, 564)
+	var center := steering_rect().get_center()
 	draw_circle(center, 87, Color(0.03, 0.10, 0.15, 0.8))
 	draw_arc(center, 87, 0, TAU, 80, Color("3c6a80"), 1.5, true)
 	draw_arc(center, 56, 0, TAU, 64, Color("234251"), 1.0, true)
 	draw_line(center - Vector2(100, 0), center + Vector2(100, 0), Color("234251"))
 	draw_line(center - Vector2(0, 100), center + Vector2(0, 100), Color("234251"))
 	draw_circle(center + game.turn_input * 55, 30, Color(0.2, 0.65, 0.8, 0.55))
-	txt(Vector2(91, 688), "ПОВОРОТ КОРАБЛЯ", 13, DIM)
-	panel(Rect2(448, 570, 412, 124))
-	txt(Vector2(468, 597), "СКОРОСТЬ", 13, DIM)
-	txt(Vector2(468, 647), "%03d" % int(game.velocity.length()), 43)
-	txt(Vector2(556, 648), "м/с", 16, DIM)
-	txt(Vector2(650, 597), "ТЯГА  %d%%" % int(game.throttle * 100), 16, CYAN)
-	thrust_bar(Vector2(650,624),186)
-	txt(Vector2(468, 677), "СТАБИЛИЗИРОВАННЫЙ ПОЛЁТ" if game.stabilized else "ИНЕРЦИЯ · ДВИЖЕНИЕ СОХРАНЯЕТСЯ", 13, DIM if game.stabilized else AMBER)
-	txt(Vector2(966, 440), "ТЯГА", 14, DIM)
+	txt(Vector2(center.x-63,safe_bounds.end.y-8), "ПОВОРОТ КОРАБЛЯ", 13, DIM)
+	_draw_speed()
 	_radar()
 	if game.destroyed:
-		panel(Rect2(388, 290, 504, 110))
-		txt(Vector2(460, 334), "КОРАБЛЬ ПОТЕРЯН", 28, RED)
-		txt(Vector2(437, 370), "Откройте «МЕНЮ» для новой попытки", 18)
+		panel(Rect2(design_size*.5-Vector2(252,70),Vector2(504,110)))
+		txt(design_size*.5+Vector2(-180,-26), "КОРАБЛЬ ПОТЕРЯН", 28, RED)
+		txt(design_size*.5+Vector2(-203,10), "Откройте «МЕНЮ» для новой попытки", 18)
 
 func _targets(camera: Camera3D) -> void:
 	if game.mission.stage != "БОЙ":return
@@ -260,7 +328,7 @@ func _targets(camera: Camera3D) -> void:
 		if not is_instance_valid(target) or not target.visible or camera.is_position_behind(target.global_position):
 			continue
 		var p := to_design(camera.unproject_position(target.global_position))
-		if not (Rect2(30,326,660,470) if portrait else Rect2(304,118,636,360)).has_point(p):
+		if not (Rect2(Vector2(30,380)+(design_size-Vector2(720,1280))*.5,Vector2(660,400)) if portrait else Rect2(Vector2(304,130)+(design_size-Vector2(1280,720))*.5,Vector2(636,340))).has_point(p):
 			continue
 		var col := RED if target.get_meta("hostile") else AMBER
 		for corner in [Vector2(-1,-1), Vector2(1,-1), Vector2(1,1), Vector2(-1,1)]:
@@ -276,15 +344,18 @@ func _targets(camera: Camera3D) -> void:
 		var distance: int = int(game.ship.global_position.distance_to(selected.global_position))
 		var hostile: bool = selected.get_meta("hostile")
 		var col := RED if hostile else AMBER
-		var shift := Vector2(-280,132) if portrait else Vector2.ZERO
+		var shift := (Vector2(-280,348)+(design_size-Vector2(720,1280))*.5) if portrait else Vector2(0,18)+(design_size-Vector2(1280,720))*.5
 		panel(Rect2(Vector2(480,112)+shift,Vector2(320,70)))
 		txt(Vector2(498, 138)+shift, ("ПРОТИВНИК" if hostile else "МИШЕНЬ") + "  /  %d м" % distance, 17, col)
 		var max_hp := 90.0 if hostile else 40.0
 		bar(Vector2(498, 151)+shift, 284, float(selected.get_meta("health")) / max_hp, col)
 		txt(Vector2(498, 171)+shift, str(selected.get_meta("tactic", "В РАДИУСЕ ОГНЯ")) if distance <= 160 else "ВНЕ ДАЛЬНОСТИ ОРУЖИЯ", 11, DIM)
 
+func radar_center() -> Vector2:
+	return Vector2(safe_bounds.position.x+96,safe_bounds.end.y-376) if portrait else Vector2(safe_bounds.position.x+326,safe_bounds.end.y-67)
+
 func _radar() -> void:
-	var c := Vector2(120,880) if portrait else Vector2(350,627)
+	var c := radar_center()
 	draw_circle(c, 61, Color(0.02, 0.07, 0.11, 0.9))
 	for radius in [30, 60]:
 		draw_arc(c, radius, 0, TAU, 64, Color("244355"), 1.0, true)
@@ -308,9 +379,10 @@ func _radar() -> void:
 		var point := Vector2(relative.x, relative.z) * 0.35
 		point = point.limit_length(56)
 		draw_circle(c + point, 3, RED if target.get_meta("hostile") else AMBER)
-	txt(Vector2(80,803) if portrait else Vector2(310,550), radar_title, 12, DIM)
+	txt(c+Vector2(-40,-77), radar_title, 12, DIM)
 
 func _draw_portrait() -> void:
+	draw_set_transform((safe_bounds.position-Vector2(24,24))*factor,0,Vector2.ONE*factor)
 	panel(Rect2(24,24,300,48))
 	txt(Vector2(42,55),"СКИФ / ПОЛЁТ",17)
 	panel(Rect2(24,96,300,126))
@@ -320,34 +392,41 @@ func _draw_portrait() -> void:
 	txt(Vector2(42,170),"ЩИТ  %d/%d" % [int(game.shield),int(max_shield)],16)
 	bar(Vector2(42,184),264,game.shield/max_shield,Color("8fa6ff"))
 	txt(Vector2(42,208),"СИСТЕМЫ · " + ("ОТКАЗ" if game.destroyed else "НОРМА"),12,DIM)
-	panel(Rect2(344,96,352,70))
-	txt(Vector2(362,122),game.mission.objective(),14)
-	txt(Vector2(362,151),"КРЕДИТЫ: %d" % game.credits,16,AMBER)
+	panel(Rect2(24,238,300,126))
+	txt(Vector2(42,264),game.mission.objective(),12)
+	txt(Vector2(42,294),"ЭТАП: " + game.mission.stage,14,DIM)
+	txt(Vector2(42,328),"КРЕДИТЫ: %d" % game.credits,16,AMBER)
+	draw_set_transform(origin,0,Vector2.ONE*factor)
 	var camera: Camera3D = game.cockpit_camera if game.cockpit else game.external_camera
 	var aim := to_design(camera.unproject_position(game.ship.global_position-game.ship.global_basis.z*100.0))
 	draw_arc(aim,20,0,TAU,48,CYAN,1.5,true)
 	draw_circle(aim,2,CYAN)
 	_targets(camera)
 	_draw_navigation(camera)
-	var center := Vector2(145,1110)
+	var center := steering_rect().get_center()
 	draw_circle(center,87,Color(.03,.1,.15,.8))
 	draw_arc(center,87,0,TAU,64,DIM,1.5,true)
 	draw_arc(center,56,0,TAU,64,Color("234251"),1,true)
 	draw_circle(center+game.turn_input*55,30,Color(.2,.65,.8,.55))
-	txt(Vector2(74,1230),"ПОВОРОТ КОРАБЛЯ",13,DIM)
+	txt(Vector2(center.x-71,safe_bounds.end.y-26),"ПОВОРОТ КОРАБЛЯ",13,DIM)
 	_radar()
-	panel(Rect2(280,824,416,124))
-	txt(Vector2(298,850),"СКОРОСТЬ",13,DIM)
-	txt(Vector2(298,900),"%03d" % int(game.velocity.length()),43)
-	txt(Vector2(386,900),"м/с",16,DIM)
-	txt(Vector2(486,850),"ТЯГА %d%%" % int(game.throttle*100),16,CYAN)
-	thrust_bar(Vector2(486,878),192)
-	txt(Vector2(298,930),"СТАБИЛИЗАЦИЯ" if game.stabilized else "ИНЕРЦИОННЫЙ ПОЛЁТ",13,DIM)
-	txt(Vector2(380,1002),"ТЯГА",14,DIM)
+	_draw_speed()
 	if game.destroyed:
-		panel(Rect2(70,480,580,100))
-		txt(Vector2(205,521),"КОРАБЛЬ ПОТЕРЯН",24,RED)
-		txt(Vector2(190,554),"Откройте «МЕНЮ»",18)
+		var p := design_size*.5-Vector2(290,160)
+		panel(Rect2(p,Vector2(580,100)))
+		txt(p+Vector2(135,41),"КОРАБЛЬ ПОТЕРЯН",24,RED)
+		txt(p+Vector2(120,74),"Откройте «МЕНЮ»",18)
+
+func _draw_speed() -> void:
+	var r := speed_rect()
+	panel(r)
+	var p := r.position
+	txt(p+Vector2(18,27),"СКОРОСТЬ",13,DIM)
+	txt(p+Vector2(18,77),"%03d" % int(game.velocity.length()),43)
+	txt(p+Vector2(106,78),"м/с",16,DIM)
+	txt(p+Vector2(196,27),"ТЯГА %d%%" % int(game.throttle*100),16,CYAN)
+	thrust_bar(p+Vector2(196,54),r.size.x-214)
+	txt(p+Vector2(18,107),"СТАБИЛИЗАЦИЯ" if game.stabilized else "ИНЕРЦИОННЫЙ ПОЛЁТ",13,DIM)
 
 func _build_mission_panel() -> void:
 	dock_button = button("СТЫКОВКА",Rect2(510,445,260,56),game.request_station_dock,true)
@@ -481,13 +560,14 @@ func _update_mission_panel() -> void:
 func _draw_navigation(camera: Camera3D) -> void:
 	var m = game.mission
 	var surface: bool = m.stage == "ПОВЕРХНОСТЬ" and game.planet.on_surface()
-	if not surface and m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ","К ПЛАНЕТЕ",game.planet.OUTBOUND,game.planet.INBOUND]:return
+	if not surface and not game.has_orbital_target() and m.stage not in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ","К ПЛАНЕТЕ",game.planet.OUTBOUND,game.planet.INBOUND]:return
 	if m.can_dock():return
-	var destination: Vector3 = game.planet.mining_target() if surface else m.nav_position()
+	var destination: Vector3 = game.planet.mining_target() if surface else game.flight_nav_position()
 	var delta: Vector3 = destination-camera.global_position
-	var zone := Rect2(60,340,600,400) if portrait else Rect2(330,205,570,265)
-	if surface:
-		zone = Rect2(60,540,600,110) if portrait else Rect2(330,265,570,145)
+	var zone := Rect2(60,550,600,140) if portrait else Rect2(330,205,570,265)
+	if game.planet.active():
+		zone = Rect2(60,590,600,60) if portrait else Rect2(400,400,500,20)
+	zone.position += (design_size-(Vector2(720,1280) if portrait else Vector2(1280,720)))*.5
 	var p := to_design(camera.unproject_position(destination))
 	var offscreen := camera.is_position_behind(destination) or not zone.has_point(p)
 	if offscreen:
@@ -502,16 +582,15 @@ func _draw_navigation(camera: Camera3D) -> void:
 		draw_colored_polygon(PackedVector2Array([p+dir*16,p-dir*12+tangent*9,p-dir*12-tangent*9]),CYAN)
 	else:
 		draw_polyline(PackedVector2Array([p+Vector2(0,-16),p+Vector2(16,0),p+Vector2(0,16),p+Vector2(-16,0),p+Vector2(0,-16)]),CYAN,2,true)
-	var label := Sector.title(m.destination if m.stage in ["ДОСТАВКА","ПЕРЕЛЁТ"] else m.origin) if m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"] else "МАЯК"
-	if m.stage=="К ПЛАНЕТЕ":label="ВХОД В АТМОСФЕРУ"
-	if m.stage in [game.planet.OUTBOUND,game.planet.INBOUND]:label="ПРЫЖКОВЫЙ МАЯК"
+	var label: String = game.flight_nav_title()
 	if surface:
 		label = "ПЛОЩАДКА" if game.planet.mine().surveyed else "СИГНАЛ РУДЫ"
 	if camera.is_position_behind(destination):label += " ПОЗАДИ"
 	var label_y := p.y + 35
-	if surface and (label_y >= zone.end.y or portrait):
+	if game.planet.active():
 		label_y = p.y - 22
-	var text_pos := Vector2(clampf(p.x-55,30,design_size.x-230),label_y)
+	var label_left := safe_bounds.position.x+320 if game.planet.active() and not portrait else 30.0
+	var text_pos := Vector2(clampf(p.x-55,label_left,design_size.x-230),label_y)
 	txt(text_pos,label+" %d м" % int(game.ship.position.distance_to(destination)),14,CYAN)
 
 func _build_sector_map() -> void:

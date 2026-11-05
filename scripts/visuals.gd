@@ -188,21 +188,7 @@ func _build_space() -> void:
 	rim.light_color = Color("5c9bc9")
 	rim.light_energy = .65
 	game.add_child(rim)
-	var sphere := SphereMesh.new()
-	sphere.radius = 70
-	sphere.height = 140
-	sphere.radial_segments = 96
-	sphere.rings = 48
-	var material := ShaderMaterial.new()
-	material.shader = preload("res://shaders/planet.gdshader")
-	var planet := mesh(space_root,sphere,Vector3(170,-40,-360),material)
-	planet.rotation_degrees = Vector3(25,-20,0)
-	var air_mesh := sphere.duplicate() as SphereMesh
-	air_mesh.radius = 71.2
-	air_mesh.height = 142.4
-	var air := ShaderMaterial.new()
-	air.shader = preload("res://shaders/atmosphere.gdshader")
-	mesh(space_root,air_mesh,planet.position,air)
+	_build_system(space_root, game.orbit_system(false))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 481516
 	var stone := mat(Color("363339"))
@@ -224,23 +210,88 @@ func build_neighbor(layout: Dictionary) -> void:
 	neighbor_root = Node3D.new()
 	game.add_child(neighbor_root)
 	neighbor_root.visible = false
+	_build_system(neighbor_root, game.orbit_system(true))
+
+func _build_system(parent: Node3D, data: Dictionary) -> void:
+	var star: Dictionary = data.star
+	var star_root := Node3D.new()
+	star_root.name = "CentralStar"
+	star_root.position = star.position
+	parent.add_child(star_root)
 	var sphere := SphereMesh.new()
-	sphere.radius = layout.radius
-	sphere.height = sphere.radius * 2.0
+	sphere.radius = star.radius
+	sphere.height = sphere.radius * 2
+	sphere.radial_segments = 64
+	sphere.rings = 32
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://shaders/star.gdshader")
+	material.set_shader_parameter("star_color", star.color)
+	mesh(star_root, sphere, Vector3.ZERO, material)
+	var glow := ShaderMaterial.new()
+	glow.shader = preload("res://shaders/star_corona.gdshader")
+	glow.set_shader_parameter("star_color", star.color)
+	for factor in [1.12, 1.35]:
+		var halo := sphere.duplicate() as SphereMesh
+		halo.radius *= factor
+		halo.height = halo.radius * 2
+		mesh(star_root, halo, Vector3.ZERO, glow)
+	var planets := Node3D.new()
+	planets.name = "PlanetaryBodies"
+	parent.add_child(planets)
+	for body in data.planets:
+		_build_planet(planets, body)
+
+func _build_planet(parent: Node3D, data: Dictionary) -> void:
+	var root := Node3D.new()
+	root.name = data.id
+	root.position = data.position
+	parent.add_child(root)
+	var sphere := SphereMesh.new()
+	sphere.radius = data.radius
+	sphere.height = sphere.radius * 2
 	sphere.radial_segments = 64
 	sphere.rings = 32
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://shaders/planet.gdshader")
-	material.set_shader_parameter("palette", layout.ground_color)
-	var entry: Vector3 = layout.entry
-	var center := entry + Vector3(20, -25, -sphere.radius - 45)
-	mesh(neighbor_root, sphere, center, material)
-	var atmosphere := sphere.duplicate() as SphereMesh
-	atmosphere.radius += 1.2
-	atmosphere.height = atmosphere.radius * 2.0
-	var glow := ShaderMaterial.new()
-	glow.shader = preload("res://shaders/atmosphere.gdshader")
-	mesh(neighbor_root, atmosphere, center, glow)
+	material.set_shader_parameter("palette", data.color)
+	material.set_shader_parameter("planet_kind", ["terrestrial", "rocky", "gas"].find(data.kind))
+	mesh(root, sphere, Vector3.ZERO, material)
+	if data.kind != "rocky":
+		var atmosphere := sphere.duplicate() as SphereMesh
+		atmosphere.radius += 1.2
+		atmosphere.height = atmosphere.radius * 2
+		var glow := ShaderMaterial.new()
+		glow.shader = preload("res://shaders/atmosphere.gdshader")
+		mesh(root, atmosphere, Vector3.ZERO, glow)
+	if data.kind == "gas":
+		var ring := SurfaceTool.new()
+		ring.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for segment in range(96):
+			var angle := TAU * segment / 96.0
+			var next := TAU * (segment + 1) / 96.0
+			var a := Vector3(cos(angle), 0, sin(angle)) * sphere.radius * 1.3
+			var b := Vector3(cos(angle), 0, sin(angle)) * sphere.radius * 1.9
+			var c := Vector3(cos(next), 0, sin(next)) * sphere.radius * 1.3
+			var d := Vector3(cos(next), 0, sin(next)) * sphere.radius * 1.9
+			for vertex in [a,b,c,b,d,c]:
+				ring.set_normal(Vector3.UP)
+				ring.add_vertex(vertex)
+		var ring_material := mat(Color("9b876c"))
+		ring_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		var rings := mesh(root, ring.commit(), Vector3.ZERO, ring_material)
+		rings.rotation_degrees = Vector3(18, 0, -12)
+
+func update_sun() -> void:
+	if game.planet == null or game.planet.on_surface():
+		return
+	var center: Vector3 = game.orbit_system().star.position
+	var direction: Vector3 = game.ship.position - center
+	if direction.length_squared() > 1:
+		sun_light.position = game.ship.position
+		var axis := direction.normalized()
+		var up := Vector3.FORWARD if absf(axis.dot(Vector3.UP)) > .98 else Vector3.UP
+		sun_light.look_at(game.ship.position + axis, up)
+	sun_light.light_color = game.orbit_system().star.color
 
 func _build_station(location: Vector3, outpost := false) -> void:
 	var station := Node3D.new()
