@@ -31,7 +31,11 @@ func run() -> void:
 		root.size = dimensions
 		for frame in range(3):
 			await process_frame
-		ui._layout()
+		game.armament.launcher = "launcher"
+		game.armament.rockets = 12
+		game.armament.group = 2
+		game.combat.lock_progress = 1.0
+		ui._process(0)
 		ui.planet_panel._process(0)
 		var viewport: Vector2 = ui.size
 		var bounds: Rect2 = ui.safe_bounds
@@ -45,7 +49,7 @@ func run() -> void:
 		var sample: Vector2 = ui.steering_rect().get_center()
 		check(ui.to_design(ui.from_design(sample)).distance_to(sample)<.1, "Touch coordinates round trip %s" % dimensions)
 		var rects: Array[Rect2] = [ui.steering_rect(),ui.speed_rect(),Rect2(ui.radar_center()-Vector2(61,61),Vector2(122,122)),ui.help_label.get_rect(),ui.planet_status_rect(),ui.mining_status_rect()]
-		for button in [ui.camera_button,ui.controls["МОДУЛИ"],ui.controls["МЕНЮ"],ui.map_button,ui.market_button,ui.planet_panel.launch,ui.planet_panel.neighbor_launch,ui.planet_panel.report_button,ui.controls["+"],ui.controls["−"],ui.fire_button,ui.stable_button]:
+		for button in [ui.camera_button,ui.controls["МОДУЛИ"],ui.controls["МЕНЮ"],ui.map_button,ui.market_button,ui.weapon_shop_button,ui.group_button,ui.missile_button,ui.planet_panel.launch,ui.planet_panel.neighbor_launch,ui.planet_panel.report_button,ui.controls["+"],ui.controls["−"],ui.fire_button,ui.stable_button]:
 			rects.append(button.get_rect())
 		for i in range(rects.size()):
 			check(bounds.encloses(rects[i]), "HUD rectangle %d stays in safe viewport %s" % [i,dimensions])

@@ -26,7 +26,7 @@ func setup(owner_game: Node3D) -> void:
 	up.button_up.connect(func():game.planet.vertical=0.0)
 	down.button_up.connect(func():game.planet.vertical=0.0)
 	mine_action = _button("СКАНИРОВАТЬ", _mining_action)
-	report_button = _button("ОТЧЁТ ДОБЫЧИ", show_report)
+	report_button = _button("ОТЧЁТ", show_report)
 	report_dialog = AcceptDialog.new()
 	report_dialog.title = "Меридиан-1 · отчёт комплекса"
 	report_dialog.ok_button_text = "Прочитано"
@@ -38,7 +38,7 @@ func setup(owner_game: Node3D) -> void:
 func _button(text: String, callback: Callable) -> Button:
 	var b:=Button.new();b.text=text;game.flight_ui.decorate(b,true);b.pressed.connect(callback);add_child(b);return b
 func rect(b: Button, r: Rect2) -> void:b.position=r.position;b.size=r.size
-func modal() -> bool:return game.flight_ui.map_panel.visible or game.flight_ui.market_panel.visible or game.upgrades_panel.visible
+func modal() -> bool:return game.flight_ui.map_panel.visible or game.flight_ui.market_panel.visible or game.upgrades_panel.visible or (game.weapon_shop != null and game.weapon_shop.visible)
 
 func _mining_action() -> void:
 	if game.mission.stage == "ПОВЕРХНОСТЬ":
@@ -76,7 +76,9 @@ func _process(_delta: float) -> void:
 	rect(up,Rect2(fire.position,Vector2(fire.size.x,64)))
 	rect(down,Rect2(fire.position+Vector2(0,76),Vector2(fire.size.x,64)))
 	rect(mine_action,Rect2(ui.context_position(18 if portrait else 150),Vector2(260,52)))
-	rect(report_button,ui.shortcut_rect(4))
+	var report_rect: Rect2 = ui.shortcut_rect(4)
+	var report_width := (report_rect.size.x-12)*.5
+	rect(report_button,Rect2(report_rect.position+Vector2(report_width+12,0),Vector2(report_width,48)))
 	var blocked:=modal()
 	report_button.visible = (game.mining.has_report() or game.neighbor_mining.has_report()) and not blocked
 	var stage: String=game.mission.stage

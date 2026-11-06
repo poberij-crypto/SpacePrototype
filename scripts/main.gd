@@ -3,6 +3,11 @@ extends Node3D
 const SAVE_PATH := "user://space_prototype.json"
 const Sector = preload("res://scripts/sector_data.gd")
 const Trade = preload("res://scripts/trade_data.gd")
+const Armament = preload("res://scripts/armament_state.gd")
+var armament = Armament.new()
+var combat: Node3D
+var weapon_shop: Control
+var weapon_note := ""
 var cargo: Dictionary = Trade.empty_cargo()
 const Mining = preload("res://scripts/mining_state.gd")
 const World = preload("res://scripts/world_generator.gd")
@@ -68,6 +73,9 @@ func _ready() -> void:
 	planet = preload("res://scripts/planet_flight.gd").new()
 	add_child(planet)
 	planet.setup(self)
+	combat = preload("res://scripts/weapon_combat.gd").new()
+	add_child(combat)
+	combat.setup(self)
 	_build_hud()
 	mining_active_at = Time.get_ticks_msec()
 	if mining.installed or neighbor_mining.installed:
@@ -132,6 +140,7 @@ func _create_target(pos: Vector3, hostile: bool) -> void:
 	target.set_meta("id",enemies.size())
 	target.set_meta("hostile", hostile)
 	target.set_meta("health", 90.0 if hostile else 40.0)
+	target.set_meta("shield", 30.0 if hostile else 0.0)
 	add_child(target)
 	visuals.target_model(target,hostile)
 	if hostile:
@@ -147,6 +156,9 @@ func _build_hud() -> void:
 	flight_ui = preload("res://scripts/flight_ui.gd").new()
 	layer.add_child(flight_ui)
 	flight_ui.setup(self)
+	weapon_shop = preload("res://scripts/weapon_shop.gd").new()
+	flight_ui.content.add_child(weapon_shop)
+	weapon_shop.setup(self)
 	joystick = flight_ui
 	help_label = flight_ui.help_label
 	upgrades_panel = flight_ui.upgrades_panel
@@ -160,7 +172,7 @@ func _build_hud() -> void:
 	flight_ui.add_child(station_dock_dialog)
 
 func _input(event: InputEvent) -> void:
-	if station_dock_dialog.visible or mission.flight_locked() or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
+	if (weapon_shop != null and weapon_shop.visible) or station_dock_dialog.visible or mission.flight_locked() or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
 	if event is InputEventScreenTouch:
 		if not event.pressed and event.index == fire_touch:
 			fire_touch = -1
@@ -203,7 +215,8 @@ func _process(_delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if mining_suspended:
 		return
-	if station_dock_dialog.visible or upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible or flight_ui.planet_panel.report_dialog.visible:return
+	if (weapon_shop != null and weapon_shop.visible) or station_dock_dialog.visible or upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible or flight_ui.planet_panel.report_dialog.visible:return
+	armament.tick(delta)
 	mission.step(delta)
 	planet.step_survey(delta)
 	if planet.step(delta):
@@ -234,9 +247,9 @@ func _physics_process(delta: float) -> void:
 	visuals.update_sun()
 	visuals.update_flight(throttle)
 	fire_timer -= delta
-	if firing and fire_timer <= 0:
+	if firing:
 		_shoot()
-		fire_timer = 0.35
+	combat.step(delta)
 	for target in enemies:
 		var pilot = target.get_node_or_null("PilotAI")
 		if pilot != null: pilot.step(delta)
@@ -249,37 +262,8 @@ func _physics_process(delta: float) -> void:
 	_update_hud()
 
 func _shoot() -> void:
-	if mission.flight_locked() or mission.kind=="planet":return
-	var chosen: Node3D = null
-	var best := 0.96
-	for target in enemies:
-		if not is_instance_valid(target) or not target.visible:
-			continue
-		var direction := target.global_position - ship.global_position
-		if direction.length() > 160.0 or direction.length() < 0.1:
-			continue
-		var aim := (-ship.global_transform.basis.z).dot(direction.normalized())
-		if aim > best:
-			best = aim
-			chosen = target
-	var impact: Vector3 = chosen.global_position if chosen != null else ship.global_position - ship.global_basis.z * 160.0
-	for side in [-1.0,1.0]:
-		var muzzle: Vector3 = ship.to_global(Vector3(side*2.8,0,-1.5))
-		fx.beam(muzzle, impact)
-	if chosen != null:
-		fx.burst(chosen.global_position)
-		var hp: float = chosen.get_meta("health") - (20.0 + upgrades.weapon * 8.0)
-		chosen.set_meta("health", hp)
-		if hp > 0:
-			var pilot = chosen.get_node_or_null("PilotAI")
-			if pilot != null: pilot.on_hit()
-		if hp <= 0:
-			fx.burst(chosen.global_position,true)
-			credits += 100 if chosen.get_meta("hostile") else 50
-			enemies.erase(chosen)
-			chosen.queue_free()
-			_save_progress()
-	help_label.text = "Попадание!" if chosen != null else "Выстрел: наведите прицел на цель"
+	if combat.fire_primary():
+		fire_timer = .35
 
 func _enemy_attack() -> void:
 	for target in enemies:
@@ -322,7 +306,7 @@ func _buy(kind: String) -> void:
 
 func _update_hud() -> void:
 	flight_ui.queue_redraw()
-	upgrade_info.text = "УЛУЧШЕНИЯ  •  Кредиты: %d\nДвигатель: %d/3   Щит: %d/3\nОружие: %d/3\n" % [credits, upgrades.engine, upgrades.shield, upgrades.weapon]
+	upgrade_info.text = "УЛУЧШЕНИЯ  •  Кредиты: %d\nДвигатель: %d/3   Щит: %d/3\nУсилитель: %d/3\n" % [credits, upgrades.engine, upgrades.shield, upgrades.weapon]
 	if not at_station() or not pending_snapshot.is_empty():upgrade_info.text += "Установка — только на станции"
 
 func _save_progress() -> bool:
@@ -334,7 +318,7 @@ func _save_progress() -> bool:
 		for mine in [mining, neighbor_mining]:
 			if mine.installed:
 				mine.saved_at = now
-	var data := {"schema":5,"mining":mining.capture(),"neighbor_mining":neighbor_mining.capture(),"cargo":cargo,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
+	var data := {"schema":6,"armament":armament.capture(),"mining":mining.capture(),"neighbor_mining":neighbor_mining.capture(),"cargo":cargo,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
 	var ok: bool = store.write_document(data)
 	save_error = "" if ok else "Не удалось сохранить игру"
 	return ok
@@ -344,6 +328,7 @@ func _load_progress() -> void:
 	if data.is_empty():return
 	credits = maxi(0,int(data.get("credits",0)))
 	cargo = Trade.read_cargo(data.get("cargo",{}))
+	armament.restore(data.get("armament"))
 	mining.restore(data.get("mining"))
 	neighbor_mining.restore(data.get("neighbor_mining"))
 	training_runs = maxi(0,int(data.get("training_runs",0)))
@@ -392,6 +377,7 @@ func start_selected_mission(to_neighbor := false) -> void:
 		mission.beacon.queue_free()
 		mission.setup(self)
 	orbital_target = -1
+	combat.reset()
 	mission.kind = selected_mission
 	planet.configure_route(to_neighbor and selected_mission == "planet")
 	mission.launch()
@@ -424,6 +410,7 @@ func clear_held_input() -> void:
 	turn_input = Vector2.ZERO
 	firing = false
 	if planet!=null:planet.vertical=0
+	if combat!=null:combat.reset_lock()
 
 func _notification(what: int) -> void:
 	if not is_node_ready() or mission == null:
@@ -596,3 +583,45 @@ func constrain_orbit() -> void:
 			ship.position = body.position + outward * limit
 			velocity = Vector3.ZERO
 			throttle = 0.0
+
+
+func toggle_weapon_shop() -> void:
+	if weapon_shop.visible:
+		weapon_shop.visible = false
+		clear_held_input()
+		return
+	if not can_trade(): return
+	clear_held_input()
+	flight_ui.map_panel.visible = false
+	flight_ui.market_panel.visible = false
+	upgrades_panel.visible = false
+	weapon_shop.visible = true
+	weapon_note = ""
+
+func can_weapon_transaction(action: String, item: String, slot := -1) -> bool:
+	return can_trade() and armament.can_transact(action, item, slot, station_id, credits)
+
+func weapon_transaction(action: String, item: String, slot := -1) -> bool:
+	if not can_weapon_transaction(action, item, slot):
+		weapon_note = "Проверьте баланс, склад, совместимость и мощность оборудования."
+		return false
+	var previous: Dictionary = armament.capture()
+	var previous_credits := credits
+	credits = armament.transact(action, item, slot, station_id, credits)
+	if not _save_progress():
+		armament.restore(previous)
+		credits = previous_credits
+		weapon_note = "Изменение не сохранено. Кредиты и оборудование возвращены."
+		return false
+	weapon_note = "Операция выполнена. Склад и вооружение сохранены."
+	return true
+
+func cycle_fire_group() -> void:
+	clear_held_input()
+	var previous: int = armament.group
+	armament.group = (armament.group + 1) % 3
+	if not _save_progress():armament.group = previous
+
+func launch_missile() -> void:
+	if not combat.launch_missile():
+		help_label.text = "Ракеты: нужна установка, боезапас и полный захват цели."

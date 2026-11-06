@@ -8,6 +8,7 @@ const Mining = preload("res://scripts/mining_state.gd")
 const Region = preload("res://scripts/planet_region.gd")
 const STAGES := [OUTBOUND,INBOUND,"К ПЛАНЕТЕ","СПУСК","ПОВЕРХНОСТЬ","ПОСАДКА","НА ПОВЕРХНОСТИ","ВЗЛЁТ","ВЫХОД НА ОРБИТУ"]
 const TRANSITIONS := ["СПУСК","ПОСАДКА","ВЗЛЁТ","ВЫХОД НА ОРБИТУ"]
+const HORIZON_RESPONSE := 2.4
 var game: Node3D
 var neighbor_route := false
 var generated: Dictionary = World.neighbor()
@@ -276,6 +277,7 @@ func step(delta: float) -> bool:
 
 func constrain_motion(delta: float) -> void:
 	if not surface or game.mission.stage!="ПОВЕРХНОСТЬ":return
+	_level_horizon(delta)
 	var previous_y: float=game.velocity.y
 	game.velocity.y=move_toward(game.velocity.y,vertical*16.0,24.0*delta)
 	game.ship.position.y+=(game.velocity.y-previous_y)*delta
@@ -293,6 +295,32 @@ func constrain_motion(delta: float) -> void:
 	if absf(p.x)>=900 or absf(p.z)>=900:game.velocity=Vector3.ZERO;game.throttle=0
 	p.y=minf(p.y,region.terrain_height(p.x,p.z)+400)
 	game.ship.position=p
+
+func _level_horizon(delta: float) -> void:
+	if not game.stabilized or delta <= 0.0:return
+	var attitude: Basis = game.ship.global_basis.orthonormalized()
+	var forward := -attitude.z
+	var horizontal := Vector3(forward.x, 0, forward.z)
+	# At a vertical nose direction the heading is undefined; the ship's right
+	# axis still supplies a stable horizontal direction without a zero cross product.
+	if horizontal.length_squared() < .0001:
+		var horizontal_right := Vector3(attitude.x.x, 0, attitude.x.z).normalized()
+		horizontal = Vector3.UP.cross(horizontal_right)
+	else:
+		horizontal = horizontal.normalized()
+	var right := horizontal.cross(Vector3.UP).normalized()
+	var upright := right.cross(forward).normalized()
+	var roll := upright.signed_angle_to(attitude.y, forward)
+	var remaining := exp(-HORIZON_RESPONSE * delta)
+	var steering: Vector2 = game.turn_input if game.steer_touch != -1 else Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
+	if steering == Vector2.ZERO:
+		var pitch := asin(clampf(forward.y, -1.0, 1.0)) * remaining
+		forward = horizontal * cos(pitch) + Vector3.UP * sin(pitch)
+	# Pitch and roll decay separately so leveling cannot alter the horizontal
+	# heading, and active steering keeps the pilot's current nose direction.
+	right = forward.cross(upright).normalized()
+	upright = right.cross(forward).normalized()
+	game.ship.global_basis = Basis(right, upright, -forward).rotated(forward, roll * remaining).orthonormalized()
 
 func capture() -> Dictionary:
 	return {"neighbor":neighbor_route,"generation":World.VERSION if neighbor_route else 0,"surface":surface,"elapsed":elapsed,"start":game.snapshots.vec(start),"target":game.snapshots.vec(target)}

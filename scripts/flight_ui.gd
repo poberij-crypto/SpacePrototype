@@ -32,6 +32,9 @@ var previous_size := Vector2.ZERO
 var controls: Dictionary = {}
 var game: Node3D
 var content: Control
+var group_button: Button
+var missile_button: Button
+var weapon_shop_button: Button
 var fire_button: Button
 var stable_button: Button
 var camera_button: Button
@@ -50,6 +53,12 @@ func setup(owner_game: Node3D) -> void:
 	content = Control.new()
 	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(content)
+	weapon_shop_button = button("АРСЕНАЛ", Rect2(990,264,126,48), game.toggle_weapon_shop)
+	weapon_shop_button.add_theme_font_size_override("font_size", 14)
+	group_button = button("ГРУППА · ОБА", Rect2(920,396,161,48), game.cycle_fire_group)
+	group_button.add_theme_font_size_override("font_size", 13)
+	missile_button = button("РАКЕТА", Rect2(1093,396,161,48), game.launch_missile, true)
+	missile_button.add_theme_font_size_override("font_size", 13)
 	camera_button = button("КАМЕРА · СНАРУЖИ", Rect2(990, 24, 264, 48), game._toggle_camera)
 	button("МОДУЛИ", Rect2(990, 84, 126, 48), game._toggle_upgrades)
 	button("МЕНЮ", Rect2(1128, 84, 126, 48), game.save_to_menu)
@@ -81,7 +90,7 @@ func setup(owner_game: Node3D) -> void:
 	upgrade_info.add_theme_color_override("font_color", WHITE)
 	upgrade_info.add_theme_font_size_override("font_size", 21)
 	menu.add_child(upgrade_info)
-	for item in [["engine", "ДВИГАТЕЛЬ"], ["shield", "ЩИТ"], ["weapon", "ОРУЖИЕ"]]:
+	for item in [["engine", "ДВИГАТЕЛЬ"], ["shield", "ЩИТ"], ["weapon", "УСИЛИТЕЛЬ ОРУЖИЯ"]]:
 		var key: String = item[0]
 		var b := Button.new()
 		b.text = item[1] + "  +  /  100 кр."
@@ -179,6 +188,14 @@ func _layout() -> void:
 		Rect2(right-fire_width,bottom-216,fire_width,144 if portrait else 146),
 		Rect2(right-stable_width,bottom-52,stable_width,52),
 	]
+	var weapon_row := shortcut_rect(4)
+	weapon_shop_button.position = weapon_row.position
+	weapon_shop_button.size = Vector2((weapon_row.size.x-12)*.5,48)
+	var combat_width := stable_width
+	group_button.position = Vector2(right-combat_width,bottom-298)
+	group_button.size = Vector2((combat_width-12)*.5,48)
+	missile_button.position = group_button.position+Vector2(group_button.size.x+12,0)
+	missile_button.size = group_button.size
 	var row: Rect2 = shortcut_rect(1)
 	rects[1] = Rect2(row.position,Vector2((row.size.x-12)*.5,48))
 	rects[2] = Rect2(row.position+Vector2((row.size.x+12)*.5,0),Vector2((row.size.x-12)*.5,48))
@@ -226,7 +243,7 @@ func context_position(y_offset: float) -> Vector2:
 	return Vector2(design_size.x*.5-130,design_size.y*.5+y_offset)
 
 func speed_rect() -> Rect2:
-	return Rect2(safe_bounds.end-Vector2(416,432),Vector2(416,124)) if portrait else Rect2(safe_bounds.end-Vector2(334,380),Vector2(334,124))
+	return Rect2(safe_bounds.end-Vector2(416,432),Vector2(416,124)) if portrait else Rect2(safe_bounds.end-Vector2(334,380),Vector2(334,76))
 
 func steering_rect() -> Rect2:
 	return Rect2(Vector2(safe_bounds.position.x,safe_bounds.end.y-276),Vector2(260,276))
@@ -251,6 +268,10 @@ func _process(_delta: float) -> void:
 	_layout()
 	fire_button.text = "ОГОНЬ\nАКТИВЕН" if game.firing else "ОГОНЬ\nУДЕРЖИВАТЬ"
 	camera_button.text = "КАМЕРА · КАБИНА" if game.cockpit else "КАМЕРА · СНАРУЖИ"
+	group_button.text = "ГРУППА · " + game.armament.group_title()
+	var armed: bool = game.armament.launcher == "launcher"
+	missile_button.text = ("РАК%d · ЦЕЛЬ %d%%" % [game.armament.rockets, int(game.combat.lock_progress*100)]) if armed else "НЕТ ПУСКОВОЙ"
+	missile_button.disabled = game.mission.flight_locked() or game.armament.rockets <= 0 or not armed or game.combat.lock_progress < 1.0 or game.armament.missile_cooldown > 0
 	stable_button.text = "СТАБИЛИЗАЦИЯ · ВКЛ" if game.stabilized else "СТАБИЛИЗАЦИЯ · ВЫКЛ"
 	_update_mission_panel()
 	queue_redraw()
@@ -331,6 +352,8 @@ func _targets(camera: Camera3D) -> void:
 		if not (Rect2(Vector2(30,380)+(design_size-Vector2(720,1280))*.5,Vector2(660,400)) if portrait else Rect2(Vector2(304,130)+(design_size-Vector2(1280,720))*.5,Vector2(636,340))).has_point(p):
 			continue
 		var col := RED if target.get_meta("hostile") else AMBER
+		if is_instance_valid(game.combat.lock_target) and target == game.combat.lock_target:
+			draw_arc(p,27,-PI*.5,-PI*.5+TAU*game.combat.lock_progress,40,CYAN if game.combat.lock_progress>=1 else AMBER,2.5,true)
 		for corner in [Vector2(-1,-1), Vector2(1,-1), Vector2(1,1), Vector2(-1,1)]:
 			var c: Vector2 = p + corner * 19
 			draw_line(c, c - Vector2(corner.x * 9, 0), col, 1.5, true)
@@ -346,10 +369,18 @@ func _targets(camera: Camera3D) -> void:
 		var col := RED if hostile else AMBER
 		var shift := (Vector2(-280,348)+(design_size-Vector2(720,1280))*.5) if portrait else Vector2(0,18)+(design_size-Vector2(1280,720))*.5
 		panel(Rect2(Vector2(480,112)+shift,Vector2(320,70)))
-		txt(Vector2(498, 138)+shift, ("ПРОТИВНИК" if hostile else "МИШЕНЬ") + "  /  %d м" % distance, 17, col)
+		var target_shield := float(selected.get_meta("shield",0.0))
+		txt(Vector2(498,138)+shift,("ПРОТИВНИК" if hostile else "МИШЕНЬ")+" · %d м · ЩИТ %d" % [distance,int(target_shield)],14,col)
+		if hostile:
+			bar(Vector2(498,143)+shift,284,target_shield/30.0,Color("8fa6ff"))
 		var max_hp := 90.0 if hostile else 40.0
 		bar(Vector2(498, 151)+shift, 284, float(selected.get_meta("health")) / max_hp, col)
-		txt(Vector2(498, 171)+shift, str(selected.get_meta("tactic", "В РАДИУСЕ ОГНЯ")) if distance <= 160 else "ВНЕ ДАЛЬНОСТИ ОРУЖИЯ", 11, DIM)
+		var selected_range := 0.0
+		for slot in range(2):
+			var weapon_id: String = game.armament.loadout[slot]
+			if not weapon_id.is_empty() and game.armament.group in [0,slot+1]:
+				selected_range = maxf(selected_range,float(game.armament.CATALOG[weapon_id].range))
+		txt(Vector2(498,171)+shift,str(selected.get_meta("tactic","В РАДИУСЕ ОГНЯ")) if distance<=selected_range else "ВНЕ ДАЛЬНОСТИ ВЫБРАННОЙ ГРУППЫ",11,DIM)
 
 func radar_center() -> Vector2:
 	return Vector2(safe_bounds.position.x+96,safe_bounds.end.y-376) if portrait else Vector2(safe_bounds.position.x+326,safe_bounds.end.y-67)
@@ -417,16 +448,23 @@ func _draw_portrait() -> void:
 		txt(p+Vector2(135,41),"КОРАБЛЬ ПОТЕРЯН",24,RED)
 		txt(p+Vector2(120,74),"Откройте «МЕНЮ»",18)
 
+func _weapon_short(id: String) -> String:
+	return {"laser":"ЛАЗ", "cannon":"АП", "plasma":"ПЛ", "":"—"}.get(id,"—")
+
 func _draw_speed() -> void:
 	var r := speed_rect()
 	panel(r)
 	var p := r.position
-	txt(p+Vector2(18,27),"СКОРОСТЬ",13,DIM)
-	txt(p+Vector2(18,77),"%03d" % int(game.velocity.length()),43)
-	txt(p+Vector2(106,78),"м/с",16,DIM)
-	txt(p+Vector2(196,27),"ТЯГА %d%%" % int(game.throttle*100),16,CYAN)
-	thrust_bar(p+Vector2(196,54),r.size.x-214)
-	txt(p+Vector2(18,107),"СТАБИЛИЗАЦИЯ" if game.stabilized else "ИНЕРЦИОННЫЙ ПОЛЁТ",13,DIM)
+	if portrait:
+		txt(p+Vector2(18,25),"СКОРОСТЬ",12,DIM)
+		txt(p+Vector2(18,62),"%03d м/с" % int(game.velocity.length()),28)
+	else:
+		txt(p+Vector2(14,28),"%03d м/с" % int(game.velocity.length()),24)
+	txt(p+Vector2(196,24),"ТЯГА %d%%" % int(game.throttle*100),14,CYAN)
+	thrust_bar(p+Vector2(196,35),r.size.x-214)
+	var status_y := 88.0 if portrait else 49.0
+	txt(p+Vector2(14,status_y),"ЭН %d%% · БК %d · РАК %d" % [int(game.armament.energy),game.armament.ammo,game.armament.rockets],12,CYAN)
+	txt(p+Vector2(14,status_y+18),"Л %s %d%% · П %s %d%%" % [_weapon_short(game.armament.loadout[0]),int(game.armament.heat[0]),_weapon_short(game.armament.loadout[1]),int(game.armament.heat[1])],12,AMBER if maxf(game.armament.heat[0],game.armament.heat[1])>=80 else DIM)
 
 func _build_mission_panel() -> void:
 	dock_button = button("СТЫКОВКА",Rect2(510,445,260,56),game.request_station_dock,true)
@@ -501,18 +539,23 @@ func _build_mission_panel() -> void:
 	box.add_child(discard_button)
 
 func _update_mission_panel() -> void:
-	market_button.visible = not map_panel.visible
+	var shop_open: bool = game.weapon_shop != null and game.weapon_shop.visible
+	weapon_shop_button.visible = game.can_trade() and not map_panel.visible and not market_panel.visible and not upgrades_panel.visible and not shop_open
+	market_button.visible = not map_panel.visible and not shop_open
 	var m = game.mission
 	var locked: bool = m.flight_locked()
 	var pending: bool = not game.pending_snapshot.is_empty()
 	var station: bool = game.at_station()
-	mission_panel.visible = (station or m.stage=="ПРОВАЛ") and not upgrades_panel.visible and not market_panel.visible
+	mission_panel.visible = (station or m.stage=="ПРОВАЛ") and not upgrades_panel.visible and not market_panel.visible and not shop_open
 	fire_button.disabled = locked or m.kind=="planet"
 	fire_button.visible = m.kind!="planet" or station or m.stage=="ПРОВАЛ"
+	group_button.visible = fire_button.visible and not shop_open
+	missile_button.visible = fire_button.visible and not shop_open
+	group_button.disabled = locked
 	controls["+"].disabled = locked
 	controls["−"].disabled = locked
 	var contact: int = m.nearby_station()
-	dock_button.visible = (contact >= 0 or m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"]) and not upgrades_panel.visible and not market_panel.visible and not map_panel.visible
+	dock_button.visible = (contact >= 0 or m.stage in ["ВОЗВРАЩЕНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"]) and not upgrades_panel.visible and not market_panel.visible and not map_panel.visible and not shop_open
 	dock_button.disabled = not m.can_station_dock(contact)
 	dock_button.add_theme_font_size_override("font_size", 14 if dock_button.disabled else 18)
 	dock_button.text = "СТЫКОВКА" if contact < 0 else "СТЫКОВКА · %s" % Sector.title(contact)

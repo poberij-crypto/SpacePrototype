@@ -156,6 +156,7 @@ func _finish_docking(id: int, completed: bool) -> void:
 		game.training_runs = previous.runs
 		return
 	beacon.visible = false
+	game.combat.reset()
 	for target in game.enemies:
 		target.visible = false
 		var pilot = target.get_node_or_null("PilotAI")
