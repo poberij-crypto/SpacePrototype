@@ -7,9 +7,9 @@ const MAX_ID := 2147483647
 const OFFERS := {
 	"delivery":{"kind":"delivery", "title":"Снабжение станции", "faction":"guild", "reward":240, "trust":5, "required":0},
 	"survey":{"kind":"scout", "title":"Разведка сектора", "faction":"guard", "reward":180, "trust":5, "required":0},
-	"pirate":{"kind":"combat", "title":"Перехват пирата", "faction":"guard", "reward":380, "trust":8, "required":0, "target_shield":15.0},
+	"pirate":{"kind":"combat", "title":"Перехват пиратов", "faction":"guard", "reward":380, "trust":8, "required":0, "target_shield":15.0, "pirates":2},
 	"priority":{"kind":"delivery", "title":"Приоритетная доставка", "faction":"guild", "reward":410, "trust":7, "required":15},
-	"raider":{"kind":"combat", "title":"Перехват рейдера", "faction":"guard", "reward":540, "trust":10, "required":15, "target_shield":30.0},
+	"raider":{"kind":"combat", "title":"Перехват рейдеров", "faction":"guard", "reward":540, "trust":10, "required":15, "target_shield":30.0, "pirates":3},
 }
 var reputation := {"guild":0, "guard":0}
 var active: Dictionary = {}

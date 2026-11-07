@@ -137,10 +137,10 @@ func _build_world() -> void:
 	_create_target(Vector3(9,-4,-90),false)
 	_create_target(Vector3(0,5,-120),true)
 
-func _create_target(pos: Vector3, hostile: bool) -> void:
+func _create_target(pos: Vector3, hostile: bool, id := -1) -> void:
 	var target := Node3D.new()
 	target.position = pos
-	target.set_meta("id",enemies.size())
+	target.set_meta("id", enemies.size() if id < 0 else id)
 	target.set_meta("hostile", hostile)
 	target.set_meta("health", 90.0 if hostile else 40.0)
 	target.set_meta("shield", 30.0 if hostile else 0.0)
@@ -281,10 +281,11 @@ func _enemy_attack() -> void:
 			var absorbed := minf(shield, damage)
 			shield -= absorbed
 			hull -= damage - absorbed
+			flight_ui.show_hit(int(target.get_meta("id")), target.global_position - ship.global_position)
 			if hull <= 0:
 				destroyed = true
 				help_label.text = "Корабль потерян. Откройте «МЕНЮ» для новой попытки."
-			break
+				break
 
 func _toggle_camera() -> void:
 	cockpit = not cockpit

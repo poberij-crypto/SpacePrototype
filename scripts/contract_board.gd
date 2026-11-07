@@ -6,7 +6,6 @@ const DIM := Color("86a8bc")
 const BRIEF := {
 	"delivery":"Доставьте груз (2 ед.) на другую станцию.",
 	"scout":"Просканируйте маяк в указанном секторе и сдайте отчёт.",
-	"combat":"Уничтожьте корабль в указанном секторе и сдайте отчёт.",
 }
 
 var game: Node3D
@@ -148,9 +147,10 @@ func _card(order: Dictionary, key := "") -> void:
 	var heading: String = order.title if key != "" else "№%d · %s" % [order.id, order.title]
 	_label(lines, heading, 19, CYAN)
 	_label(lines, "%s · %s → %s" % [game.contracts.FACTIONS[order.faction], Sector.title(order.origin), Sector.title(order.destination)], 14, DIM)
-	_label(lines, BRIEF[order.kind], 15, Color("e9f5fc"))
+	var brief: String = "Уничтожьте все корабли пиратов (%d) и сдайте отчёт." % order.pirates if order.kind == "combat" else BRIEF[order.kind]
+	_label(lines, brief, 15, Color("e9f5fc"))
 	if order.get("target_shield", 0.0) == 30.0:
-		_label(lines, "Цель с усиленным щитом.", 14, DIM)
+		_label(lines, "Корабли с усиленными щитами.", 14, DIM)
 	_label(lines, "%d кр. · Репутация +%d" % [order.reward, order.trust], 15, Color("ffc46a"))
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 8)

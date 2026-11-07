@@ -97,7 +97,9 @@ func run() -> void:
 	resumed.mission.step()
 	var target: Node3D = resumed.combat.target_by_id(2)
 	assert(target != null and target.get_meta("shield") == 15.0)
-	resumed.combat.apply_damage(target, 300.0, "laser")
+	for pirate_target in resumed.enemies.duplicate():
+		if pirate_target.visible and pirate_target.get_meta("hostile"):
+			resumed.combat.apply_damage(pirate_target, 300.0, "laser")
 	assert(resumed.credits == before + 420, "Interception is paid at destination")
 	resumed.mission.step()
 	_dock_position(resumed, 1)

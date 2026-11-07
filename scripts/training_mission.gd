@@ -8,6 +8,7 @@ var interrupted := false
 const DOCK_POINT := Vector3(35,0,-123)
 const BEACON := Vector3(0,0,-300)
 const REWARD := 300
+const PIRATE_OFFSETS := [Vector3(0, 5, -50), Vector3(57, 14, -18), Vector3(-55, -14, 25)]
 var kind := "combat"
 var scan_elapsed := 0.0
 var beacon: MeshInstance3D
@@ -56,12 +57,27 @@ func assign_contract(id: int) -> void:
 	beacon.position = order.site if not order.is_empty() else BEACON
 	if id == 0 and not was_assigned:
 		return
+	for target in game.enemies.duplicate():
+		if int(target.get_meta("id")) >= 3:
+			game.enemies.erase(target)
+			target.queue_free()
+	for index in range(1, int(order.get("pirates", 1))):
+		game._create_target(beacon.position + PIRATE_OFFSETS[index], true, 2 + index)
 	for target in game.enemies:
 		var hostile: bool = target.get_meta("hostile")
 		target.visible = id == 0 and not hostile
 		if hostile:
-			target.position = beacon.position + Vector3(0, 5, -50)
+			var index := int(target.get_meta("id")) - 2
+			target.position = beacon.position + PIRATE_OFFSETS[index]
 			target.set_meta("shield", order.get("target_shield", 30.0))
+			target.get_node("PilotAI").enabled = false
+
+func hostiles_remaining() -> int:
+	var count := 0
+	for target in game.enemies:
+		if target.get_meta("hostile"):
+			count += 1
+	return count
 
 func flight_locked() -> bool:
 	return stage in ["ИНСТРУКТАЖ","ЗАВЕРШЕНО","ПРОВАЛ","СПУСК","ПОСАДКА","НА ПОВЕРХНОСТИ","ВЗЛЁТ","ВЫХОД НА ОРБИТУ"]
@@ -92,6 +108,7 @@ func begin_combat() -> void:
 			var pilot = target.get_node("PilotAI")
 			pilot.enabled = true
 			pilot.setup(game,target)
+			pilot.cooldown = (int(target.get_meta("id")) - 2) * 0.35
 
 func step(delta := 0.0) -> void:
 	if game.destroyed:
@@ -108,13 +125,9 @@ func step(delta := 0.0) -> void:
 			stage = "ВОЗВРАЩЕНИЕ"
 			beacon.visible = false
 			game.clear_held_input()
-	elif stage == "БОЙ":
-		var hostiles := 0
-		for target in game.enemies:
-			if target.get_meta("hostile"):hostiles += 1
-		if hostiles == 0:
-			stage = "ВОЗВРАЩЕНИЕ"
-			game.clear_held_input()
+	elif stage == "БОЙ" and hostiles_remaining() == 0:
+		stage = "ВОЗВРАЩЕНИЕ"
+		game.clear_held_input()
 
 func nearby_station() -> int:
 	if game.destroyed or flight_locked() or game.planet.on_surface() or game.planet.in_neighbor():
@@ -210,7 +223,7 @@ func objective() -> String:
 	var order: Dictionary = game.contracts.order(contract_id)
 	if not order.is_empty() and not flight_locked():
 		match stage:
-			"БОЙ":return "УНИЧТОЖЬТЕ ПРОТИВНИКА"
+			"БОЙ":return "ПИРАТЫ · ОСТАЛОСЬ %d" % hostiles_remaining()
 			"СКАНИРОВАНИЕ":return "ПРОСКАНИРУЙТЕ МАЯК"
 			"ВОЗВРАЩЕНИЕ":return "СДАЙТЕ КОНТРАКТ"
 			_:return str(order.title)

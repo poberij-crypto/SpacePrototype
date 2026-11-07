@@ -21,7 +21,7 @@ func capture(game: Node3D) -> Dictionary:
 		if pilot != null:
 			data["ai"] = {"state":pilot.state,"time":pilot.state_time,"cooldown":pilot.cooldown,"waypoint":vec(pilot.waypoint),"passes":pilot.passes,"enabled":pilot.enabled}
 		targets.append(data)
-	return {"contract_id":game.mission.contract_id,"armament":game.armament.runtime_capture(),"projectiles":game.combat.capture(),"orbital_target":game.orbital_target if game.has_orbital_target() else -1,"planet":game.planet.capture() if game.planet!=null and game.mission.kind=="planet" else {},"version":4,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
+	return {"contract_id":game.mission.contract_id,"armament":game.armament.runtime_capture(),"projectiles":game.combat.capture(),"orbital_target":game.orbital_target if game.has_orbital_target() else -1,"planet":game.planet.capture() if game.planet!=null and game.mission.kind=="planet" else {},"version":5,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
 
 func _number(v, low: float, high: float) -> bool:
 	return typeof(v) in [TYPE_INT,TYPE_FLOAT] and is_finite(float(v)) and float(v)>=low and float(v)<=high
@@ -37,17 +37,19 @@ func _rotation(v) -> bool:
 
 func valid(s: Dictionary) -> bool:
 	if s.has("armament") and not Armament.valid_runtime(s.armament):return false
-	if not Combat.valid(s.get("projectiles", [])):return false
+	var version = s.get("version")
+	if not _number(version, 1, 5) or float(int(version)) != float(version):return false
 	var contract = s.get("contract_id", 0)
 	if not _number(contract, 0, 2147483646) or float(int(contract)) != float(contract):return false
-	if contract > 0 and (s.get("version") != 4 or s.get("kind") not in ["delivery","scout","combat"]):return false
+	if contract > 0 and (version < 4 or s.get("kind") not in ["delivery","scout","combat"]):return false
 	var orbital = s.get("orbital_target", -1)
 	if not _number(orbital, -1, 2) or float(int(orbital)) != float(orbital):return false
 	if orbital >= 0 and (s.get("kind") != "planet" or s.get("stage") != "К ПЛАНЕТЕ"):return false
-	if s.get("version") != 1 and s.get("version") != 2 and s.get("version") != 3 and s.get("version") != 4:return false
+	var max_target_id := 4 if version >= 5 and contract > 0 and s.get("kind") == "combat" else 2
+	if not Combat.valid(s.get("projectiles", []), max_target_id):return false
 	if s.get("stage") not in STAGES+Planet.STAGES or s.get("kind") not in ["combat","scout","delivery","trade","planet"]:return false
 	if s.kind=="planet":
-		if s.version!=4 or s.stage not in Planet.STAGES+["ВОЗВРАЩЕНИЕ"] or not Planet.valid(s.get("planet"),s.stage):return false
+		if s.version<4 or s.stage not in Planet.STAGES+["ВОЗВРАЩЕНИЕ"] or not Planet.valid(s.get("planet"),s.stage):return false
 	elif s.stage in Planet.STAGES:return false
 	if s.version==1 and s.kind=="delivery":return false
 	if s.version<3 and (s.kind=="trade" or s.stage=="ПЕРЕЛЁТ"):return false
@@ -64,16 +66,16 @@ func valid(s: Dictionary) -> bool:
 	for key in ["stabilized","cockpit"]:
 		if typeof(s.get(key)) != TYPE_BOOL:return false
 	if not _number(s.get("hull"),.01,100) or not _number(s.get("shield"),0,175) or not _number(s.get("throttle"),-.3 if s.version>=4 else 0,1) or not _number(s.get("scan"),0,3) or not _number(s.get("fire_timer"),-100000,1):return false
-	if typeof(s.get("targets")) != TYPE_ARRAY or s.targets.size()>3:return false
+	if typeof(s.get("targets")) != TYPE_ARRAY or s.targets.size()>max_target_id+1:return false
 	var ids: Array = []
 	for target in s.targets:
-		if typeof(target)!=TYPE_DICTIONARY or not _number(target.get("id"),0,2):return false
+		if typeof(target)!=TYPE_DICTIONARY or not _number(target.get("id"),0,max_target_id):return false
 		if not _number(target.get("shield",0),0,30):return false
 		var id := int(target.id)
 		if float(id)!=float(target.id) or id in ids:return false
 		ids.append(id)
 		if not _array(target.get("pos"),3) or not _rotation(target.get("rot")) or not _number(target.get("hp"),.01,90) or typeof(target.get("visible"))!=TYPE_BOOL:return false
-		if id==2:
+		if id>=2:
 			var ai = target.get("ai")
 			if typeof(ai)!=TYPE_DICTIONARY or ai.get("state") not in TACTICS or not _array(ai.get("waypoint"),3):return false
 			if typeof(ai.get("enabled"))!=TYPE_BOOL or not _number(ai.get("time"),0,1000000) or not _number(ai.get("cooldown"),0,2) or not _number(ai.get("passes"),0,1000000):return false

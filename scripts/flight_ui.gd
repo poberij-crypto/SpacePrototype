@@ -12,6 +12,8 @@ const DIM := Color("6991a7")
 const WHITE := Color("e9f5fc")
 const AMBER := Color("ffc46a")
 const RED := Color("ff7979")
+const HIT_DURATION := 1.25
+var incoming_hits: Dictionary = {}
 var resume_button: Button
 var repair_button: Button
 var discard_button: Button
@@ -263,9 +265,10 @@ func to_design(point: Vector2) -> Vector2:
 func from_design(point: Vector2) -> Vector2:
 	return origin + point * factor
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if game == null:
 		return
+	age_hits(delta)
 	_layout()
 	fire_button.text = "ОГОНЬ\nАКТИВЕН" if game.firing else "ОГОНЬ\nУДЕРЖИВАТЬ"
 	camera_button.text = "КАМЕРА · КАБИНА" if game.cockpit else "КАМЕРА · СНАРУЖИ"
@@ -341,6 +344,54 @@ func _draw() -> void:
 		panel(Rect2(design_size*.5-Vector2(252,70),Vector2(504,110)))
 		txt(design_size*.5+Vector2(-180,-26), "КОРАБЛЬ ПОТЕРЯН", 28, RED)
 		txt(design_size*.5+Vector2(-203,10), "Откройте «МЕНЮ» для новой попытки", 18)
+	_draw_hits(aim)
+
+func show_hit(attacker: int, direction: Vector3) -> void:
+	incoming_hits[attacker] = {"direction":direction.normalized(), "remaining":HIT_DURATION}
+	queue_redraw()
+
+func age_hits(delta: float) -> void:
+	if game.mission.stage != "БОЙ" and not game.destroyed:
+		incoming_hits.clear()
+		return
+	for attacker in incoming_hits.keys():
+		var hit: Dictionary = incoming_hits[attacker]
+		hit.remaining -= delta
+		if hit.remaining <= 0.0:
+			incoming_hits.erase(attacker)
+
+func hit_bearing(world_direction: Vector3) -> Dictionary:
+	var local: Vector3 = game.ship.global_basis.inverse() * world_direction
+	var rear := local.z > 0.0
+	var screen := Vector2(local.x, -local.y)
+	if screen.length_squared() < 0.01:
+		screen = Vector2.DOWN if rear else Vector2.UP
+	return {"offset":screen.normalized() * (126.0 if rear else 86.0), "rear":rear}
+
+func _draw_hits(aim: Vector2) -> void:
+	if game.mission.stage != "БОЙ" and not game.destroyed:
+		return
+	for hit in incoming_hits.values():
+		var bearing := hit_bearing(hit.direction)
+		var offset: Vector2 = bearing.offset
+		var direction := offset.normalized()
+		var tangent := direction.orthogonal()
+		var center := aim + offset
+		if game.destroyed:
+			# Keep the last hit visible outside the station-return prompt.
+			var prompt := mission_panel.get_rect()
+			var margin := 48.0 if bearing.rear else 26.0
+			var half := prompt.size * 0.5 + Vector2.ONE * margin
+			var distance := minf(half.x / maxf(absf(direction.x), 0.001), half.y / maxf(absf(direction.y), 0.001))
+			center = prompt.get_center() + direction * distance
+		var alpha := clampf(float(hit.remaining) / 0.48, 0.0, 1.0)
+		var arrow := PackedVector2Array([center - direction * 9.0 + tangent * 13.0, center + direction * 6.0, center - direction * 9.0 - tangent * 13.0])
+		draw_polyline(arrow, Color(0.12, 0.01, 0.015, alpha), 9.0, true)
+		draw_polyline(arrow, Color(1.0, 0.27, 0.25, alpha), 5.0, true)
+		if bearing.rear:
+			var label_pos := center + direction * 29.0 + Vector2(-15.0, 5.0)
+			draw_rect(Rect2(label_pos - Vector2(4, 14), Vector2(39, 18)), Color(0.10, 0.01, 0.015, alpha * 0.86))
+			txt(label_pos, "ТЫЛ", 13, Color(1.0, 0.6, 0.6, alpha))
 
 func _targets(camera: Camera3D) -> void:
 	if game.mission.stage != "БОЙ":return
@@ -448,6 +499,7 @@ func _draw_portrait() -> void:
 		panel(Rect2(p,Vector2(580,100)))
 		txt(p+Vector2(135,41),"КОРАБЛЬ ПОТЕРЯН",24,RED)
 		txt(p+Vector2(120,74),"Откройте «МЕНЮ»",18)
+	_draw_hits(aim)
 
 func _weapon_short(id: String) -> String:
 	return {"laser":"ЛАЗ", "cannon":"АП", "plasma":"ПЛ", "":"—"}.get(id,"—")
@@ -605,7 +657,7 @@ func _update_mission_panel() -> void:
 	mission_panel.reset_size()
 	if m.stage in ["ВЫЛЕТ","ВОЗВРАЩЕНИЕ","СКАНИРОВАНИЕ","ДОСТАВКА","ПЕРЕЛЁТ"]:help_label.text = m.hint()
 	elif locked:help_label.text = ""
-	elif m.stage == "БОЙ" and previous_mission_stage != m.stage:help_label.text = "Противник активен · держите его в прицеле"
+	elif m.stage == "БОЙ" and previous_mission_stage != m.stage:help_label.text = "Стрелка показывает, откуда попали" if m.contract_id > 0 else "Противник активен · держите его в прицеле"
 	if not game.save_error.is_empty():help_label.text = game.save_error
 	previous_mission_stage = m.stage
 

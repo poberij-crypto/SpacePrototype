@@ -180,11 +180,11 @@ func capture() -> Array:
 		result.append({"kind":shot.kind,"pos":[shot.pos.x,shot.pos.y,shot.pos.z],"velocity":[shot.velocity.x,shot.velocity.y,shot.velocity.z],"life":shot.life,"target":shot.target,"damage":shot.damage})
 	return result
 
-static func valid(data) -> bool:
+static func valid(data, max_target_id: int) -> bool:
 	if typeof(data) != TYPE_ARRAY or data.size() > MAX_PROJECTILES: return false
 	for shot in data:
 		if typeof(shot) != TYPE_DICTIONARY or shot.get("kind") not in ["cannon","plasma","launcher"]: return false
-		if not Arms.number(shot.get("life"),0,4) or not Arms.number(shot.get("damage"),0,100) or not Arms.number(shot.get("target"),-1,2,true): return false
+		if not Arms.number(shot.get("life"),0,4) or not Arms.number(shot.get("damage"),0,100) or not Arms.number(shot.get("target"),-1,max_target_id,true): return false
 		for key in ["pos","velocity"]:
 			if typeof(shot.get(key)) != TYPE_ARRAY or shot[key].size() != 3: return false
 			for value in shot[key]:
