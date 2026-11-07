@@ -25,6 +25,7 @@ var mission_panel: PanelContainer
 var mission_title: Label
 var mission_body: Label
 var mission_button: Button
+var contract_button: Button
 var dock_button: Button
 var portrait := false
 var design_size := Vector2(1280,720)
@@ -512,6 +513,12 @@ func _build_mission_panel() -> void:
 	decorate(delivery_choice)
 	delivery_choice.pressed.connect(func():game.choose_mission("delivery"))
 	mission_choices.add_child(delivery_choice)
+	contract_button = Button.new()
+	contract_button.text = "КОНТРАКТЫ"
+	contract_button.custom_minimum_size.y = 44
+	decorate(contract_button)
+	contract_button.pressed.connect(game.toggle_contract_board)
+	box.add_child(contract_button)
 	box.add_child(mission_button)
 	resume_button = Button.new()
 	resume_button.text = "ПРОДОЛЖИТЬ ВЫЛЕТ"
@@ -539,7 +546,7 @@ func _build_mission_panel() -> void:
 	box.add_child(discard_button)
 
 func _update_mission_panel() -> void:
-	var shop_open: bool = game.weapon_shop != null and game.weapon_shop.visible
+	var shop_open: bool = (game.weapon_shop != null and game.weapon_shop.visible) or (game.contract_board != null and game.contract_board.visible)
 	weapon_shop_button.visible = game.can_trade() and not map_panel.visible and not market_panel.visible and not upgrades_panel.visible and not shop_open
 	market_button.visible = not map_panel.visible and not shop_open
 	var m = game.mission
@@ -562,6 +569,7 @@ func _update_mission_panel() -> void:
 	if contact >= 0 and dock_button.disabled:
 		dock_button.text = "ПОДОЙДИТЕ ДО 40 м" if game.ship.position.distance_to(Sector.position(contact)) > Sector.DOCK_RADIUS else "СНИЗЬТЕ СКОРОСТЬ ДО 5 м/с"
 	mission_choices.visible = station and not pending
+	contract_button.visible = station and not pending
 	mission_button.disabled = station and game.selected_mission=="delivery" and game.cargo_used()+game.Trade.CONTRACT_SIZE>game.Trade.CAPACITY
 	mission_button.visible = not pending
 	resume_button.visible = station and pending
@@ -586,6 +594,7 @@ func _update_mission_panel() -> void:
 		if game.selected_mission=="planet":task = "Экспедиция на Астру: район Меридиан.\nРазведка, посадка и вывоз руды."
 		if game.selected_mission=="trade":task = "Свободный перелёт → «%s».\nТовары продаются вручную через «ГРУЗ»." % Sector.title(1-game.station_id)
 		mission_body.text = "Баланс: %d кр. · Корпус: %d%%\nСтанция «%s» · Вылетов: %d\n%s" % [game.credits,int(game.hull),Sector.title(game.station_id),game.training_runs,task]
+		if m.contract_id > 0 and not game.contract_note.is_empty():mission_body.text += "\n" + game.contract_note
 		if mission_button.disabled:mission_body.text += "\nОсвободите 2 ед. отсека через «ГРУЗ»."
 		mission_button.text = "НАЧАТЬ ВЫЛЕТ"
 	else:

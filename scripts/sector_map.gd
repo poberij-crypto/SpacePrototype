@@ -157,7 +157,7 @@ func _draw() -> void:
 			draw_circle(p,5,Color("ffbf6c"))
 			draw_arc(p,12 if selected==i and selected_planet<0 else 8,0,TAU,24,CYAN if selected==i else DIM,1.5,true)
 			text_at(p+Vector2(12,-9 if i==0 else 16),Sector.title(i),13)
-		var beacon := project(game.mission.BEACON)
+		var beacon := project(game.mission.field_point())
 		draw_circle(beacon,3,DIM)
 		if game.mission.stage == game.planet.OUTBOUND:
 			var gate := project(game.planet.World.HOME_GATE)

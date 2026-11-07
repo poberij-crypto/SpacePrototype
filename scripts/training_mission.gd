@@ -1,5 +1,6 @@
 extends Node
 const Sector = preload("res://scripts/sector_data.gd")
+var contract_id := 0
 var origin := 0
 var destination := 1
 var cargo_loaded := false
@@ -45,6 +46,23 @@ func setup(owner_game: Node3D) -> void:
 			target.visible = false
 			target.get_node("PilotAI").enabled = false
 
+func field_point() -> Vector3:
+	return beacon.position
+
+func assign_contract(id: int) -> void:
+	var was_assigned := contract_id > 0
+	contract_id = id
+	var order: Dictionary = game.contracts.order(id)
+	beacon.position = order.site if not order.is_empty() else BEACON
+	if id == 0 and not was_assigned:
+		return
+	for target in game.enemies:
+		var hostile: bool = target.get_meta("hostile")
+		target.visible = id == 0 and not hostile
+		if hostile:
+			target.position = beacon.position + Vector3(0, 5, -50)
+			target.set_meta("shield", order.get("target_shield", 30.0))
+
 func flight_locked() -> bool:
 	return stage in ["ИНСТРУКТАЖ","ЗАВЕРШЕНО","ПРОВАЛ","СПУСК","ПОСАДКА","НА ПОВЕРХНОСТИ","ВЗЛЁТ","ВЫХОД НА ОРБИТУ"]
 
@@ -55,10 +73,14 @@ func launch() -> void:
 	if kind=="planet":stage=game.planet.OUTBOUND if game.planet.neighbor_route else "К ПЛАНЕТЕ"
 	cargo_loaded = kind=="delivery"
 	beacon.visible = kind not in ["delivery","trade","planet"]
-	if kind in ["delivery","trade","planet"]:game.ship.look_at(nav_position())
+	if contract_id > 0 or kind in ["delivery","trade","planet"]:game.ship.look_at(nav_position())
 	if kind=="planet":game.planet.sync_space()
 	game.clear_held_input()
-	game._save_progress()
+	if not game._save_progress() and contract_id > 0:
+		stage = "ИНСТРУКТАЖ"
+		cargo_loaded = false
+		beacon.visible = false
+		assign_contract(0)
 
 func begin_combat() -> void:
 	if stage != "ВЫЛЕТ":return
@@ -75,11 +97,11 @@ func step(delta := 0.0) -> void:
 	if game.destroyed:
 		stage = "ПРОВАЛ"
 		return
-	if stage == "ВЫЛЕТ" and game.ship.position.distance_to(BEACON) <= 70.0:
+	if stage == "ВЫЛЕТ" and game.ship.position.distance_to(field_point()) <= 70.0:
 		if kind == "scout":stage = "СКАНИРОВАНИЕ"
 		else:begin_combat()
 	elif stage == "СКАНИРОВАНИЕ":
-		if game.ship.position.distance_to(BEACON)<=35 and game.velocity.length()<=8:
+		if game.ship.position.distance_to(field_point())<=35 and game.velocity.length()<=8:
 			scan_elapsed = minf(3,scan_elapsed+delta)
 		else:scan_elapsed = 0
 		if scan_elapsed>=3:
@@ -112,7 +134,7 @@ func can_station_dock(id: int) -> bool:
 		and game.velocity.length() <= Sector.DOCK_SPEED
 
 func arrival_station() -> int:
-	return destination if kind in ["delivery", "trade"] else origin
+	return destination if contract_id > 0 or kind in ["delivery", "trade"] else origin
 
 func can_dock() -> bool:
 	return stage in ["ВОЗВРАЩЕНИЕ", "ДОСТАВКА", "ПЕРЕЛЁТ"] \
@@ -127,6 +149,13 @@ func interrupt_and_dock(id: int) -> void:
 		_finish_docking(id, false)
 
 func _finish_docking(id: int, completed: bool) -> void:
+	var receipt: Dictionary = {}
+	var previous_contracts: Dictionary = {}
+	if completed and contract_id > 0:
+		previous_contracts = game.contracts.capture()
+		receipt = game.contracts.finish(contract_id, id)
+		if receipt.is_empty():
+			return
 	var previous := {"stage":stage, "cargo":cargo_loaded, "interrupted":interrupted,
 		"station":game.station_id, "velocity":game.velocity, "throttle":game.throttle,
 		"position":game.ship.position, "shield":game.shield,
@@ -141,9 +170,14 @@ func _finish_docking(id: int, completed: bool) -> void:
 	game.clear_held_input()
 	game.shield = 100.0 + game.upgrades.shield * 25.0
 	if completed:
-		game.credits += reward()
-		game.training_runs += 1
+		if receipt.is_empty():
+			game.credits += reward()
+			game.training_runs += 1
+		else:
+			game.credits += int(receipt.reward)
 	if not game._save_progress():
+		if not previous_contracts.is_empty():
+			game.contracts.restore(previous_contracts)
 		stage = previous.stage
 		cargo_loaded = previous.cargo
 		interrupted = previous.interrupted
@@ -155,6 +189,8 @@ func _finish_docking(id: int, completed: bool) -> void:
 		game.credits = previous.credits
 		game.training_runs = previous.runs
 		return
+	if not receipt.is_empty():
+		game.contract_note = "Оплачено %d кр. · %s %+d" % [receipt.reward, game.contracts.FACTIONS[receipt.faction], receipt.trust]
 	beacon.visible = false
 	game.combat.reset()
 	for target in game.enemies:
@@ -168,9 +204,16 @@ func nav_position() -> Vector3:
 	if kind=="planet" and stage!="ВОЗВРАЩЕНИЕ":
 		return game.planet.nav_point()
 	if stage in ["ДОСТАВКА","ПЕРЕЛЁТ"]:return Sector.dock_point(destination)
-	return Sector.dock_point(origin) if stage=="ВОЗВРАЩЕНИЕ" else BEACON
+	return Sector.dock_point(arrival_station()) if stage=="ВОЗВРАЩЕНИЕ" else field_point()
 
 func objective() -> String:
+	var order: Dictionary = game.contracts.order(contract_id)
+	if not order.is_empty() and not flight_locked():
+		match stage:
+			"БОЙ":return "УНИЧТОЖЬТЕ ПРОТИВНИКА"
+			"СКАНИРОВАНИЕ":return "ПРОСКАНИРУЙТЕ МАЯК"
+			"ВОЗВРАЩЕНИЕ":return "СДАЙТЕ КОНТРАКТ"
+			_:return str(order.title)
 	if game.has_orbital_target():return "ИССЛЕДУЙТЕ %s" % game.flight_nav_title()
 	if kind=="planet" and stage not in ["ИНСТРУКТАЖ","ЗАВЕРШЕНО","ПРОВАЛ","ВОЗВРАЩЕНИЕ"]:return game.planet.region_title()
 	match stage:
@@ -190,7 +233,7 @@ func hint() -> String:
 		"ВЫЛЕТ":return "До маяка %d м · прибавьте тягу" % distance
 		"СКАНИРОВАНИЕ":return "Сканирование %.1f/3 с · до 35 м, скорость до 8 м/с" % scan_elapsed
 		"ВОЗВРАЩЕНИЕ", "ДОСТАВКА", "ПЕРЕЛЁТ":
-			if not can_station_dock(arrival_station()) and game.ship.position.distance_to(Sector.position(arrival_station())) > Sector.DOCK_RADIUS:return "%s · до стыковки %d м" % [Sector.title(destination if kind in ["delivery","trade"] else origin),distance]
+			if not can_station_dock(arrival_station()) and game.ship.position.distance_to(Sector.position(arrival_station())) > Sector.DOCK_RADIUS:return "%s · до стыковки %d м" % [Sector.title(arrival_station()),distance]
 			if game.velocity.length() > 5:return "Снизьте скорость до 5 м/с · тяга 0, стабилизация ВКЛ"
 			return "Стыковка разрешена · нажмите «СТЫКОВКА»"
 		_:return ""

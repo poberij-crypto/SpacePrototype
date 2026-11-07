@@ -21,7 +21,7 @@ func capture(game: Node3D) -> Dictionary:
 		if pilot != null:
 			data["ai"] = {"state":pilot.state,"time":pilot.state_time,"cooldown":pilot.cooldown,"waypoint":vec(pilot.waypoint),"passes":pilot.passes,"enabled":pilot.enabled}
 		targets.append(data)
-	return {"armament":game.armament.runtime_capture(),"projectiles":game.combat.capture(),"orbital_target":game.orbital_target if game.has_orbital_target() else -1,"planet":game.planet.capture() if game.planet!=null and game.mission.kind=="planet" else {},"version":4,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
+	return {"contract_id":game.mission.contract_id,"armament":game.armament.runtime_capture(),"projectiles":game.combat.capture(),"orbital_target":game.orbital_target if game.has_orbital_target() else -1,"planet":game.planet.capture() if game.planet!=null and game.mission.kind=="planet" else {},"version":4,"origin":game.mission.origin,"destination":game.mission.destination,"cargo":game.mission.cargo_loaded,"stage":game.mission.stage,"kind":game.mission.kind,"scan":game.mission.scan_elapsed,"pos":vec(game.ship.position),"rot":quat(game.ship),"velocity":vec(game.velocity),"throttle":game.throttle,"stabilized":game.stabilized,"hull":game.hull,"shield":game.shield,"cockpit":game.cockpit,"fire_timer":game.fire_timer,"targets":targets}
 
 func _number(v, low: float, high: float) -> bool:
 	return typeof(v) in [TYPE_INT,TYPE_FLOAT] and is_finite(float(v)) and float(v)>=low and float(v)<=high
@@ -38,6 +38,9 @@ func _rotation(v) -> bool:
 func valid(s: Dictionary) -> bool:
 	if s.has("armament") and not Armament.valid_runtime(s.armament):return false
 	if not Combat.valid(s.get("projectiles", [])):return false
+	var contract = s.get("contract_id", 0)
+	if not _number(contract, 0, 2147483646) or float(int(contract)) != float(contract):return false
+	if contract > 0 and (s.get("version") != 4 or s.get("kind") not in ["delivery","scout","combat"]):return false
 	var orbital = s.get("orbital_target", -1)
 	if not _number(orbital, -1, 2) or float(int(orbital)) != float(orbital):return false
 	if orbital >= 0 and (s.get("kind") != "planet" or s.get("stage") != "К ПЛАНЕТЕ"):return false
@@ -78,6 +81,12 @@ func valid(s: Dictionary) -> bool:
 
 func restore(game: Node3D, s: Dictionary) -> bool:
 	if not valid(s):return false
+	var order_id := int(s.get("contract_id", 0))
+	if order_id > 0:
+		var order: Dictionary = game.contracts.order(order_id)
+		if order.is_empty() or order.kind != s.kind or order.origin != int(s.origin) or order.destination != int(s.destination):
+			return false
+	game.mission.assign_contract(order_id)
 	game.mission.origin = int(s.get("origin",0))
 	game.mission.destination = int(s.get("destination",1))
 	game.mission.cargo_loaded = bool(s.get("cargo",false))

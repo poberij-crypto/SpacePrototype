@@ -8,6 +8,9 @@ var armament = Armament.new()
 var combat: Node3D
 var weapon_shop: Control
 var weapon_note := ""
+var contracts = preload("res://scripts/contract_book.gd").new()
+var contract_board: Control
+var contract_note := ""
 var cargo: Dictionary = Trade.empty_cargo()
 const Mining = preload("res://scripts/mining_state.gd")
 const World = preload("res://scripts/world_generator.gd")
@@ -159,6 +162,9 @@ func _build_hud() -> void:
 	weapon_shop = preload("res://scripts/weapon_shop.gd").new()
 	flight_ui.content.add_child(weapon_shop)
 	weapon_shop.setup(self)
+	contract_board = preload("res://scripts/contract_board.gd").new()
+	flight_ui.content.add_child(contract_board)
+	contract_board.setup(self)
 	joystick = flight_ui
 	help_label = flight_ui.help_label
 	upgrades_panel = flight_ui.upgrades_panel
@@ -172,7 +178,7 @@ func _build_hud() -> void:
 	flight_ui.add_child(station_dock_dialog)
 
 func _input(event: InputEvent) -> void:
-	if (weapon_shop != null and weapon_shop.visible) or station_dock_dialog.visible or mission.flight_locked() or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
+	if (contract_board != null and contract_board.visible) or (weapon_shop != null and weapon_shop.visible) or station_dock_dialog.visible or mission.flight_locked() or flight_ui.map_panel.visible or flight_ui.market_panel.visible:return
 	if event is InputEventScreenTouch:
 		if not event.pressed and event.index == fire_touch:
 			fire_touch = -1
@@ -215,7 +221,7 @@ func _process(_delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if mining_suspended:
 		return
-	if (weapon_shop != null and weapon_shop.visible) or station_dock_dialog.visible or upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible or flight_ui.planet_panel.report_dialog.visible:return
+	if (contract_board != null and contract_board.visible) or (weapon_shop != null and weapon_shop.visible) or station_dock_dialog.visible or upgrades_panel.visible or flight_ui.map_panel.visible or flight_ui.market_panel.visible or flight_ui.planet_panel.report_dialog.visible:return
 	armament.tick(delta)
 	mission.step(delta)
 	planet.step_survey(delta)
@@ -318,7 +324,7 @@ func _save_progress() -> bool:
 		for mine in [mining, neighbor_mining]:
 			if mine.installed:
 				mine.saved_at = now
-	var data := {"schema":6,"armament":armament.capture(),"mining":mining.capture(),"neighbor_mining":neighbor_mining.capture(),"cargo":cargo,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
+	var data := {"schema":7,"contracts":contracts.capture(),"armament":armament.capture(),"mining":mining.capture(),"neighbor_mining":neighbor_mining.capture(),"cargo":cargo,"credits":credits,"upgrades":upgrades,"training_runs":training_runs,"station_id":station_id,"selected_mission":selected_mission,"station_hull":100.0 if destroyed else hull,"flight":flight}
 	var ok: bool = store.write_document(data)
 	save_error = "" if ok else "Не удалось сохранить игру"
 	return ok
@@ -329,6 +335,7 @@ func _load_progress() -> void:
 	credits = maxi(0,int(data.get("credits",0)))
 	cargo = Trade.read_cargo(data.get("cargo",{}))
 	armament.restore(data.get("armament"))
+	contracts.restore(data.get("contracts"))
 	mining.restore(data.get("mining"))
 	neighbor_mining.restore(data.get("neighbor_mining"))
 	training_runs = maxi(0,int(data.get("training_runs",0)))
@@ -361,7 +368,7 @@ func choose_mission(kind: String) -> void:
 	selected_mission = kind
 	_save_progress()
 
-func start_selected_mission(to_neighbor := false) -> void:
+func start_selected_mission(to_neighbor := false, order_id := 0) -> void:
 	if not at_station() or not pending_snapshot.is_empty():return
 	if selected_mission=="delivery" and cargo_used()+Trade.CONTRACT_SIZE>Trade.CAPACITY:
 		trade_note = "Для контейнера нужны 2 свободные единицы отсека."
@@ -379,6 +386,7 @@ func start_selected_mission(to_neighbor := false) -> void:
 	orbital_target = -1
 	combat.reset()
 	mission.kind = selected_mission
+	mission.assign_contract(order_id)
 	planet.configure_route(to_neighbor and selected_mission == "planet")
 	mission.launch()
 
@@ -520,6 +528,8 @@ func request_station_dock() -> void:
 	else:
 		requested_station = id
 		station_dock_dialog.dialog_text = "Прервать текущее задание без награды и состыковаться со станцией «%s»?" % Sector.title(id)
+		if mission.contract_id > 0:
+			station_dock_dialog.dialog_text = "Состыковаться со станцией «%s» и отложить вылет? Контракт останется в журнале." % Sector.title(id)
 		station_dock_dialog.popup_centered()
 
 
@@ -625,3 +635,65 @@ func cycle_fire_group() -> void:
 func launch_missile() -> void:
 	if not combat.launch_missile():
 		help_label.text = "Ракеты: нужна установка, боезапас и полный захват цели."
+
+
+func toggle_contract_board() -> void:
+	if contract_board.visible:
+		contract_board.hide()
+		return
+	if not can_trade():
+		return
+	clear_held_input()
+	flight_ui.map_panel.hide()
+	flight_ui.market_panel.hide()
+	upgrades_panel.hide()
+	weapon_shop.hide()
+	contract_board.show()
+	contract_board.refresh()
+
+func accept_contract(key: String) -> int:
+	if not can_trade():
+		return 0
+	var previous: Dictionary = contracts.capture()
+	var id: int = contracts.accept(key, station_id, int(Time.get_unix_time_from_system()))
+	if id == 0:
+		return 0
+	if not _save_progress():
+		contracts.restore(previous)
+		contract_note = "Не удалось сохранить контракт."
+		return 0
+	contract_note = "Контракт №%d принят. Выберите его в журнале для вылета." % id
+	return id
+
+func cancel_contract(id: int) -> bool:
+	if not can_trade():
+		return false
+	var previous: Dictionary = contracts.capture()
+	var loss: int = contracts.cancel(id, int(Time.get_unix_time_from_system()))
+	if loss < 0:
+		return false
+	if not _save_progress():
+		contracts.restore(previous)
+		contract_note = "Не удалось сохранить отказ."
+		return false
+	contract_note = "Контракт отменён без штрафа." if loss == 0 else "Контракт отменён. Репутация −%d." % loss
+	return true
+
+func can_launch_contract(id: int) -> bool:
+	var order: Dictionary = contracts.order(id)
+	return can_trade() and not order.is_empty() and station_id == order.origin \
+		and (order.kind != "delivery" or cargo_used() + Trade.CONTRACT_SIZE <= Trade.CAPACITY)
+
+func start_contract(id: int) -> bool:
+	if not can_launch_contract(id):
+		return false
+	var previous := selected_mission
+	selected_mission = contracts.order(id).kind
+	start_selected_mission(false, id)
+	if mission.contract_id != id:
+		selected_mission = previous
+		contract_note = "Не удалось сохранить вылет."
+		return false
+	contract_note = ""
+	contract_board.hide()
+	return true

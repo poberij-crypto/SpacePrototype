@@ -139,7 +139,8 @@ func apply_damage(target: Node3D, damage: float, kind: String) -> void:
 		if pilot != null: pilot.on_hit()
 	else:
 		game.fx.burst(target.global_position, true)
-		game.credits += 100 if target.get_meta("hostile") else 50
+		if game.mission.contract_id == 0:
+			game.credits += 100 if target.get_meta("hostile") else 50
 		game.enemies.erase(target)
 		target.queue_free()
 		game._save_progress()

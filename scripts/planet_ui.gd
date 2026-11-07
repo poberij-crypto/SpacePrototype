@@ -38,7 +38,7 @@ func setup(owner_game: Node3D) -> void:
 func _button(text: String, callback: Callable) -> Button:
 	var b:=Button.new();b.text=text;game.flight_ui.decorate(b,true);b.pressed.connect(callback);add_child(b);return b
 func rect(b: Button, r: Rect2) -> void:b.position=r.position;b.size=r.size
-func modal() -> bool:return game.flight_ui.map_panel.visible or game.flight_ui.market_panel.visible or game.upgrades_panel.visible or (game.weapon_shop != null and game.weapon_shop.visible)
+func modal() -> bool:return game.flight_ui.map_panel.visible or game.flight_ui.market_panel.visible or game.upgrades_panel.visible or (game.weapon_shop != null and game.weapon_shop.visible) or (game.contract_board != null and game.contract_board.visible)
 
 func _mining_action() -> void:
 	if game.mission.stage == "ПОВЕРХНОСТЬ":
